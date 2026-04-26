@@ -1,0 +1,17 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="16" cy="16" r="16" fill="#1a1a1a"/>
+
+  <!-- Outer circle - soap shape -->
+  <circle cx="16" cy="16" r="12" stroke="#fafaf8" stroke-width="1.5" fill="none"/>
+
+  <!-- Inner botanical element - stylized leaf/branch -->
+  <path d="M16 8C16 8 12.5 11.5 12.5 15C12.5 17.5 14 19 16 19C18 19 19.5 17.5 19.5 15C19.5 11.5 16 8 16 8Z" fill="#fafaf8" opacity="0.2"/>
+
+  <path d="M16 8V19M12.5 15C12.5 12.5 14 11 16 11M19.5 15C19.5 12.5 18 11 16 11" stroke="#fafaf8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Small decorative dots -->
+  <circle cx="16" cy="9" r="0.8" fill="#fafaf8"/>
+  <circle cx="13.5" cy="11.5" r="0.5" fill="#fafaf8" opacity="0.6"/>
+  <circle cx="18.5" cy="11.5" r="0.5" fill="#fafaf8" opacity="0.6"/>
+</svg>
