@@ -1,6 +1,7 @@
 import { Link, Outlet, useLocation } from "react-router";
 import { ShoppingBag, Package, Menu, X, User, Search } from "lucide-react";
 import { useState } from "react";
+import { Logo } from "./Logo";
 
 export function Layout() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -32,10 +33,9 @@ export function Layout() {
         <nav className="max-w-[1400px] mx-auto px-6 lg:px-12 py-6 flex items-center justify-between">
           <Link
             to="/"
-            className="text-[2rem] tracking-tight transition-opacity hover:opacity-60"
-            style={{ fontFamily: 'var(--font-display)' }}
+            className="transition-opacity hover:opacity-60"
           >
-            Atelier
+            <Logo />
           </Link>
 
           <div className="hidden md:flex items-center gap-10">
