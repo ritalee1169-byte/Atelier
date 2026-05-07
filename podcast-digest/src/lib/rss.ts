@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import type { Episode } from '../types'
 
 export function generateRssXml(episodes: Episode[]): string {
