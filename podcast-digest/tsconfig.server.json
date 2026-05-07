@@ -6,7 +6,8 @@
     "esModuleInterop": true,
     "strict": true,
     "skipLibCheck": true,
-    "outDir": "dist-server"
+    "noEmit": true
   },
-  "include": ["api", "trigger", "scripts"]
+  "include": ["api/**/*", "trigger/**/*", "scripts/**/*"],
+  "exclude": ["node_modules"]
 }
