@@ -3,13 +3,15 @@ import { OAuth2Client } from 'google-auth-library'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
+import ws from 'ws'
 import { chunkText } from '../src/lib/chunker'
 
 const getAnthropic = () => new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const getOpenAI = () => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 const getSupabase = () => createClient(
   process.env.VITE_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { global: { fetch }, realtime: { transport: ws } }
 )
 
 // Scheduled: every day at 22:00 UTC (06:00 Beijing)
