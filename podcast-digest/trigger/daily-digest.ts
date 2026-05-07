@@ -202,7 +202,7 @@ async function generateEmbeddings(episodeId: string, text: string, supabase: Ret
   })
 
   await supabase.from('episode_chunks').insert(
-    chunks.map((content, i) => ({
+    chunks.map((content: string, i: number) => ({
       episode_id: episodeId,
       chunk_index: i,
       content,

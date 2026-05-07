@@ -1,0 +1,1 @@
+{"root":["./api/ask.ts","./api/rss.ts","./trigger/daily-digest.ts","./scripts/get-gmail-token.ts"],"version":"6.0.3"}

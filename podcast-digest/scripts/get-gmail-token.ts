@@ -1,5 +1,6 @@
 import * as http from 'http'
 import * as url from 'url'
+import { execSync } from 'child_process'
 
 // Run: npx tsx scripts/get-gmail-token.ts
 const CLIENT_ID = process.env.GMAIL_CLIENT_ID!
@@ -32,30 +33,31 @@ const server = http.createServer(async (req, res) => {
   res.end('<html><body><h2>授权成功！请回到终端查看 refresh token。</h2></body></html>')
   server.close()
 
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code,
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-      redirect_uri: REDIRECT_URI,
-      grant_type: 'authorization_code',
-    }),
-  })
+  try {
+    const curlCmd = `curl -s -X POST https://oauth2.googleapis.com/token \
+      -d "code=${encodeURIComponent(code)}" \
+      -d "client_id=${CLIENT_ID}" \
+      -d "client_secret=${CLIENT_SECRET}" \
+      -d "redirect_uri=${encodeURIComponent(REDIRECT_URI)}" \
+      -d "grant_type=authorization_code"`
 
-  const tokens = await tokenRes.json() as { refresh_token?: string; error?: string }
+    const result = execSync(curlCmd, { encoding: 'utf8' })
+    const tokens = JSON.parse(result) as { refresh_token?: string; error?: string }
 
-  if (tokens.error) {
-    console.error('错误：', tokens)
+    if (tokens.error) {
+      console.error('错误：', tokens)
+      process.exit(1)
+    }
+
+    console.log('\n✅ 授权成功！\n')
+    console.log('请将以下值添加到 .env.local：\n')
+    console.log(`GMAIL_REFRESH_TOKEN=${tokens.refresh_token}`)
+    console.log()
+    process.exit(0)
+  } catch (e) {
+    console.error('curl 失败：', e)
     process.exit(1)
   }
-
-  console.log('\n✅ 授权成功！\n')
-  console.log('请将以下值添加到 .env.local：\n')
-  console.log(`GMAIL_REFRESH_TOKEN=${tokens.refresh_token}`)
-  console.log()
-  process.exit(0)
 })
 
 server.listen(PORT)
