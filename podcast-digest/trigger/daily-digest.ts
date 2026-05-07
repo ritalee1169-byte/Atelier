@@ -1,5 +1,5 @@
-import { schedules, logger } from '@trigger.dev/sdk/v3'
-import { google } from 'googleapis'
+import { schedules, task, logger } from '@trigger.dev/sdk/v3'
+import { OAuth2Client } from 'google-auth-library'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
@@ -12,61 +12,76 @@ const getSupabase = () => createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Scheduled: every day at 22:00 UTC (06:00 Beijing)
 export const dailyDigest = schedules.task({
   id: 'daily-digest',
-  // 22:00 UTC = 06:00 Beijing time
   cron: '0 22 * * *',
   maxDuration: 300,
   run: async () => {
     const yesterday = new Date()
     yesterday.setDate(yesterday.getDate() - 1)
-    const dateStr = yesterday.toISOString().split('T')[0]
-
-    logger.info('Starting digest for', { date: dateStr })
-
-    const supabase = getSupabase()
-
-    const emails = await fetchGmailEmails(yesterday)
-    logger.info('Fetched emails', { count: emails.length })
-    if (emails.length === 0) {
-      logger.info('No emails found, skipping')
-      return
-    }
-
-    const { title, summaryText } = await generateSummary(emails, dateStr)
-    logger.info('Summary generated', { title, length: summaryText.length })
-
-    const audioUrl = await generateAudio(summaryText, dateStr, supabase)
-    logger.info('Audio uploaded', { audioUrl })
-
-    const { data: episode } = await supabase
-      .from('episodes')
-      .insert({
-        date: dateStr,
-        title,
-        summary_text: summaryText,
-        audio_url: audioUrl,
-        source_count: emails.length,
-      })
-      .select('id')
-      .single()
-
-    logger.info('Episode saved', { episodeId: episode!.id })
-
-    await generateEmbeddings(episode!.id, summaryText, supabase)
-
-    await supabase.from('raw_emails').insert(
-      emails.map(e => ({
-        episode_id: episode!.id,
-        sender: e.sender,
-        subject: e.subject,
-        received_at: e.receivedAt,
-      }))
-    )
-
-    logger.info('Digest complete', { date: dateStr })
+    await runDigest(yesterday)
   },
 })
+
+// Manual backfill: trigger with { date: "YYYY-MM-DD" }
+export const backfillDigest = task({
+  id: 'backfill-digest',
+  maxDuration: 300,
+  run: async (payload: { date: string }) => {
+    const date = new Date(payload.date + 'T12:00:00Z')
+    await runDigest(date)
+  },
+})
+
+// ── shared pipeline ────────────────────────────────────────────────────────
+
+async function runDigest(date: Date) {
+  const supabase = getSupabase()
+  const dateStr = date.toISOString().split('T')[0]
+
+  logger.info('Starting digest for', { date: dateStr })
+
+  const emails = await fetchGmailEmails(date)
+  logger.info('Fetched emails', { count: emails.length })
+  if (emails.length === 0) {
+    logger.info('No emails found, skipping')
+    return
+  }
+
+  const { title, summaryText } = await generateSummary(emails, dateStr)
+  logger.info('Summary generated', { title, length: summaryText.length })
+
+  const audioUrl = await generateAudio(summaryText, dateStr, supabase)
+  logger.info('Audio uploaded', { audioUrl })
+
+  const { data: episode } = await supabase
+    .from('episodes')
+    .insert({
+      date: dateStr,
+      title,
+      summary_text: summaryText,
+      audio_url: audioUrl,
+      source_count: emails.length,
+    })
+    .select('id')
+    .single()
+
+  logger.info('Episode saved', { episodeId: episode!.id })
+
+  await generateEmbeddings(episode!.id, summaryText, supabase)
+
+  await supabase.from('raw_emails').insert(
+    emails.map(e => ({
+      episode_id: episode!.id,
+      sender: e.sender,
+      subject: e.subject,
+      received_at: e.receivedAt,
+    }))
+  )
+
+  logger.info('Digest complete', { date: dateStr })
+}
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -77,14 +92,19 @@ interface EmailItem {
   receivedAt: string
 }
 
-async function fetchGmailEmails(date: Date): Promise<EmailItem[]> {
-  const oauth2 = new google.auth.OAuth2(
+async function getGmailToken(): Promise<string> {
+  const auth = new OAuth2Client(
     process.env.GMAIL_CLIENT_ID,
     process.env.GMAIL_CLIENT_SECRET
   )
-  oauth2.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN })
+  auth.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN })
+  const { token } = await auth.getAccessToken()
+  if (!token) throw new Error('Failed to get Gmail access token')
+  return token
+}
 
-  const gmail = google.gmail({ version: 'v1', auth: oauth2 })
+async function fetchGmailEmails(date: Date): Promise<EmailItem[]> {
+  const token = await getGmailToken()
 
   const start = new Date(date)
   start.setHours(0, 0, 0, 0)
@@ -94,28 +114,28 @@ async function fetchGmailEmails(date: Date): Promise<EmailItem[]> {
   const after = Math.floor(start.getTime() / 1000)
   const before = Math.floor(end.getTime() / 1000)
 
-  const list = await gmail.users.messages.list({
-    userId: 'me',
-    q: `-in:sent -category:social -category:promotions after:${after} before:${before}`,
-    maxResults: 50,
-  })
-
-  if (!list.data.messages) return []
+  const q = `-in:sent -category:social -category:promotions after:${after} before:${before}`
+  const listRes = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&q=${encodeURIComponent(q)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  const listData = await listRes.json() as { messages?: { id: string }[] }
+  if (!listData.messages) return []
 
   const emails: EmailItem[] = []
-  for (const msg of list.data.messages) {
-    const full = await gmail.users.messages.get({
-      userId: 'me',
-      id: msg.id!,
-      format: 'full',
-    })
+  for (const msg of listData.messages) {
+    const msgRes = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    const full = await msgRes.json() as any
 
-    const headers = full.data.payload?.headers ?? []
+    const headers: { name: string; value: string }[] = full.payload?.headers ?? []
     const subject = headers.find(h => h.name === 'Subject')?.value ?? '(no subject)'
     const from = headers.find(h => h.name === 'From')?.value ?? ''
     const date = headers.find(h => h.name === 'Date')?.value ?? ''
 
-    const body = extractBody(full.data.payload)
+    const body = extractBody(full.payload)
     if (body.trim().length < 50) continue
 
     emails.push({ sender: from, subject, body, receivedAt: date })
@@ -188,7 +208,6 @@ async function generateAudio(text: string, dateStr: string, supabase: ReturnType
   if (error) throw error
 
   const { data } = supabase.storage.from('podcasts').getPublicUrl(filename)
-
   return data.publicUrl
 }
 
