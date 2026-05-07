@@ -171,6 +171,19 @@ async function generateSummary(
   const msg = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 4000,
+    tools: [{
+      name: 'save_digest',
+      description: '保存播客摘要',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          title: { type: 'string', description: '简短的今日标题，如：5月6日科技早报' },
+          summary: { type: 'string', description: '适合朗读的播客文字稿，约1500-2000字' },
+        },
+        required: ['title', 'summary'],
+      },
+    }],
+    tool_choice: { type: 'tool', name: 'save_digest' },
     messages: [{
       role: 'user',
       content: `你是一位专业的内容编辑。以下是${dateStr}收到的订阅邮件内容。
@@ -181,19 +194,15 @@ async function generateSummary(
 3. 语气自然流畅，像一位知识博主在娓娓道来
 4. 段落之间用空行分隔（便于分段）
 
-请以以下JSON格式返回：
-{"title": "简短的今日标题（如：5月6日科技早报）", "summary": "完整文字稿内容"}
-
 邮件内容：
 ${emailsText}`,
     }],
   })
 
-  const text = (msg.content[0] as any).text
-  const jsonMatch = text.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) throw new Error('No JSON found in Claude response')
-  const parsed = JSON.parse(jsonMatch[0])
-  return { title: parsed.title, summaryText: parsed.summary }
+  const toolUse = msg.content.find(c => c.type === 'tool_use') as any
+  if (!toolUse) throw new Error('Claude did not return tool_use block')
+  const { title, summary } = toolUse.input as { title: string; summary: string }
+  return { title, summaryText: summary }
 }
 
 async function generateAudio(text: string, dateStr: string, supabase: ReturnType<typeof getSupabase>): Promise<string> {
