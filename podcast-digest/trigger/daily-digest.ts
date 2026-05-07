@@ -30,8 +30,10 @@ export const dailyDigest = schedules.task({
 export const backfillDigest = task({
   id: 'backfill-digest',
   maxDuration: 300,
-  run: async (payload: { date: string }) => {
+  run: async (payload: { date?: string }) => {
+    if (!payload.date) throw new Error('payload.date is required, e.g. { "date": "2026-05-06" }')
     const date = new Date(payload.date + 'T12:00:00Z')
+    if (isNaN(date.getTime())) throw new Error(`Invalid date: ${payload.date}`)
     await runDigest(date)
   },
 })
@@ -188,7 +190,9 @@ ${emailsText}`,
   })
 
   const text = (msg.content[0] as any).text
-  const parsed = JSON.parse(text)
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('No JSON found in Claude response')
+  const parsed = JSON.parse(jsonMatch[0])
   return { title: parsed.title, summaryText: parsed.summary }
 }
 
