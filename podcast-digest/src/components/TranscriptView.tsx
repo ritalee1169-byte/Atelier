@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { EpisodeChunk } from '../types'
-import { Highlighter, Eraser, PenLine, MessageCircle, Check, X, Play } from 'lucide-react'
+import { Eraser, PenLine, MessageCircle, Check, X, Play } from 'lucide-react'
 
 export interface Highlight { text: string; color: string }
 
@@ -21,7 +21,6 @@ interface TranscriptViewProps {
   activeColor: string
   currentTime: number
   duration: number
-  isPlaying?: boolean
   onHighlightSaved?: (hl: Highlight) => void
   onHighlightRemoved?: (text: string) => void
   onAskHighlight?: (text: string) => void
@@ -108,26 +107,15 @@ function TBtn({ icon, label, onClick, danger }: { icon: React.ReactNode; label: 
 }
 
 export function TranscriptView({
-  chunks, episodeId, highlights, activeColor, currentTime, duration, isPlaying,
+  chunks, episodeId, highlights, activeColor, currentTime, duration,
   onHighlightSaved, onHighlightRemoved, onAskHighlight, onSeekToChunk,
 }: TranscriptViewProps) {
   const activeIndex = getActiveChunkIndex(currentTime, duration, chunks.length)
   const containerRef = useRef<HTMLDivElement>(null)
   const thoughtInputRef = useRef<HTMLInputElement>(null)
   const savingRef = useRef(false)
-  const prevActiveRef = useRef<number>(-2)
   const [toolbar, setToolbar] = useState<ToolbarState | null>(null)
   const [hoveredChunk, setHoveredChunk] = useState<number | null>(null)
-
-  // Auto-scroll only when audio naturally advances one paragraph — not on seek/restore/jump
-  useEffect(() => {
-    const prev = prevActiveRef.current
-    prevActiveRef.current = activeIndex
-    if (!isPlaying || activeIndex < 0 || activeIndex !== prev + 1) return
-    const el = containerRef.current?.children[activeIndex] as HTMLElement | undefined
-    if (!el) return
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [activeIndex, isPlaying])
 
   useEffect(() => {
     if (toolbar?.mode === 'thought') {
@@ -135,7 +123,7 @@ export function TranscriptView({
     }
   }, [toolbar?.mode])
 
-  // Selection → show toolbar
+  // Selection → auto-highlight with active color, show toolbar
   const handleSelectionEnd = useCallback(() => {
     setTimeout(() => {
       const sel = window.getSelection()
@@ -149,8 +137,19 @@ export function TranscriptView({
         : -1
       const isExisting = highlights.some(h => h.text === text)
 
+      // Auto-save highlight if new
+      if (!isExisting && !savingRef.current) {
+        fetch('/api/highlight', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, color: activeColor, episodeId }),
+        }).catch(() => {})
+        onHighlightSaved?.({ text, color: activeColor })
+      }
+
+      // Always show "取消划线 / 写想法 / 问AI"
       setToolbar({
-        type: isExisting ? 'existing' : 'new',
+        type: 'existing',
         text,
         chunkIndex,
         x: Math.max(140, Math.min(window.innerWidth - 140, rect.left + rect.width / 2)),
@@ -159,7 +158,7 @@ export function TranscriptView({
         thought: '',
       })
     }, 50)
-  }, [highlights])
+  }, [highlights, activeColor, episodeId, onHighlightSaved])
 
   // Click on highlight mark → show toolbar
   const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -194,22 +193,6 @@ export function TranscriptView({
   }, [])
 
   // Actions
-  const doHighlight = useCallback(async () => {
-    if (!toolbar || savingRef.current) return
-    savingRef.current = true
-    const { text } = toolbar
-    setToolbar(null)
-    window.getSelection()?.removeAllRanges()
-    try {
-      await fetch('/api/highlight', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, color: activeColor, episodeId }),
-      })
-      onHighlightSaved?.({ text, color: activeColor })
-    } finally { savingRef.current = false }
-  }, [toolbar, activeColor, episodeId, onHighlightSaved])
-
   const doRemove = useCallback(async () => {
     if (!toolbar) return
     const { text } = toolbar
@@ -233,25 +216,17 @@ export function TranscriptView({
   const doSaveThought = useCallback(async () => {
     if (!toolbar || !toolbar.thought.trim() || savingRef.current) return
     savingRef.current = true
-    const { text, thought, chunkIndex: ci, type } = toolbar
+    const { text, thought, chunkIndex: ci } = toolbar
     setToolbar(null)
     window.getSelection()?.removeAllRanges()
     try {
-      if (type === 'new') {
-        await fetch('/api/highlight', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, color: activeColor, episodeId }),
-        })
-        onHighlightSaved?.({ text, color: activeColor })
-      }
       await fetch('/api/note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, thought, episodeId, chunkIndex: ci }),
       })
     } finally { savingRef.current = false }
-  }, [toolbar, activeColor, episodeId, onHighlightSaved])
+  }, [toolbar, episodeId])
 
   return (
     <div
@@ -291,11 +266,7 @@ export function TranscriptView({
 
           {toolbar.mode === 'default' ? (
             <div style={{ display: 'flex', alignItems: 'center' }}>
-              {toolbar.type === 'new' ? (
-                <TBtn icon={<Highlighter size={13} />} label="划线" onClick={doHighlight} />
-              ) : (
-                <TBtn icon={<Eraser size={13} />} label="取消划线" onClick={doRemove} danger />
-              )}
+              <TBtn icon={<Eraser size={13} />} label="取消划线" onClick={doRemove} danger />
               <Divider />
               <TBtn
                 icon={<PenLine size={13} />}
