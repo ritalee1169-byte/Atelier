@@ -112,6 +112,7 @@ export function EpisodeDetail() {
         chunks={chunks}
         episodeId={episode.id}
         highlights={[]}
+        activeColor="#fef08a"
         currentTime={currentEp?.id === episode.id ? currentTime : 0}
         duration={currentEp?.id === episode.id ? duration : episode.duration_sec}
       />
