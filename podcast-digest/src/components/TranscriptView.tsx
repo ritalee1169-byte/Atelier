@@ -39,6 +39,36 @@ function getChunkIndexForNode(node: Node, container: HTMLElement): number {
   return Array.from(container.children).indexOf(cur as Element)
 }
 
+// Maps visible text positions to HTML positions so marks can be inserted
+// even when the selection spans markdown tags like <strong>.
+function insertMark(html: string, searchText: string, color: string): string {
+  if (!searchText) return html
+  const vis: string[] = []
+  const ps: number[] = [] // html index where visible char starts
+  const pe: number[] = [] // html index where visible char ends (exclusive)
+  let i = 0
+  while (i < html.length) {
+    if (html[i] === '<') {
+      const end = html.indexOf('>', i); i = (end < 0 ? html.length - 1 : end) + 1
+    } else if (html.startsWith('&amp;', i)) {
+      vis.push('&'); ps.push(i); pe.push(i + 5); i += 5
+    } else if (html.startsWith('&lt;', i)) {
+      vis.push('<'); ps.push(i); pe.push(i + 4); i += 4
+    } else if (html.startsWith('&gt;', i)) {
+      vis.push('>'); ps.push(i); pe.push(i + 4); i += 4
+    } else {
+      vis.push(html[i]); ps.push(i); pe.push(i + 1); i++
+    }
+  }
+  const visStr = vis.join('')
+  const idx = visStr.indexOf(searchText)
+  if (idx < 0 || idx + searchText.length - 1 >= ps.length) return html
+  const hStart = ps[idx]
+  const hEnd = pe[idx + searchText.length - 1]
+  const tag = `<mark data-hl="1" style="background:${color};border-radius:3px;padding:0 2px;cursor:pointer">`
+  return html.slice(0, hStart) + tag + html.slice(hStart, hEnd) + '</mark>' + html.slice(hEnd)
+}
+
 function toHtml(text: string, highlights: Highlight[]): string {
   let html = text
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -47,15 +77,7 @@ function toHtml(text: string, highlights: Highlight[]): string {
     .replace(/---/g, '<span class="md-hr"></span>')
 
   for (const hl of highlights) {
-    try {
-      const escaped = hl.text
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      html = html.replace(
-        new RegExp(escaped, 'g'),
-        `<mark data-hl="1" style="background:${hl.color};border-radius:3px;padding:0 2px;cursor:pointer">$&</mark>`,
-      )
-    } catch { /* skip */ }
+    try { html = insertMark(html, hl.text, hl.color) } catch { /* skip */ }
   }
   return html
 }
@@ -101,7 +123,10 @@ export function TranscriptView({
   useEffect(() => {
     if (activeIndex < 0 || !containerRef.current) return
     const el = containerRef.current.children[activeIndex] as HTMLElement | undefined
-    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const inView = rect.top >= 60 && rect.bottom <= window.innerHeight - 100
+    if (!inView) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [activeIndex])
 
   // Focus thought input when entering thought mode
@@ -129,8 +154,8 @@ export function TranscriptView({
         type: isExisting ? 'existing' : 'new',
         text,
         chunkIndex,
-        x: Math.max(120, Math.min(window.innerWidth - 120, rect.left + rect.width / 2)),
-        y: rect.top - 50,
+        x: Math.max(140, Math.min(window.innerWidth - 140, rect.left + rect.width / 2)),
+        y: Math.max(12, rect.top - 50),
         mode: 'default',
         thought: '',
       })
@@ -153,8 +178,8 @@ export function TranscriptView({
       type: 'existing',
       text,
       chunkIndex,
-      x: Math.max(120, Math.min(window.innerWidth - 120, rect.left + rect.width / 2)),
-      y: rect.top - 50,
+      x: Math.max(140, Math.min(window.innerWidth - 140, rect.left + rect.width / 2)),
+      y: Math.max(12, rect.top - 50),
       mode: 'default',
       thought: '',
     })

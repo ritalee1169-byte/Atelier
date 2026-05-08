@@ -132,13 +132,16 @@ export function Today() {
   }
 
   const handleSeekToChunk = (chunkIndex: number) => {
-    if (chunks.length === 0) return
-    const t = (chunkIndex / chunks.length) * (effectiveDuration || episode?.duration_sec || 0)
-    if (!isThisEp && episode) {
-      play(episode)
-      setTimeout(() => seek(t), 400)
-    } else {
+    if (chunks.length === 0 || !episode) return
+    const dur = effectiveDuration > 0 ? effectiveDuration : (episode.duration_sec ?? 0)
+    if (dur === 0) return
+    const t = (chunkIndex / chunks.length) * dur
+    if (isThisEp) {
       seek(t)
+    } else {
+      play(episode)
+      // Seek after audio metadata loads (~300-600ms)
+      setTimeout(() => seek(t), 600)
     }
   }
 
@@ -391,7 +394,11 @@ export function Today() {
             <textarea
               ref={askRef}
               value={askQ}
-              onChange={e => setAskQ(e.target.value)}
+              onChange={e => {
+                setAskQ(e.target.value)
+                e.target.style.height = 'auto'
+                e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px'
+              }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAsk() } }}
               placeholder="对本期内容有什么想问的？"
               rows={1}
@@ -399,6 +406,7 @@ export function Today() {
                 flex: 1, resize: 'none', border: 'none', background: 'transparent',
                 fontSize: '0.9rem', color: 'var(--foreground)', outline: 'none',
                 lineHeight: 1.5, fontFamily: 'inherit',
+                maxHeight: 140, overflowY: 'auto',
               }}
             />
             <button
