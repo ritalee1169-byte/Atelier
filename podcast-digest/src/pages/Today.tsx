@@ -163,20 +163,6 @@ export function Today() {
     }, 50)
   }
 
-  const handleSeekToChunk = (chunkIndex: number) => {
-    if (chunks.length === 0 || !episode) return
-    const dur = effectiveDuration > 0 ? effectiveDuration : (episode.duration_sec ?? 0)
-    if (dur === 0) return
-    const t = (chunkIndex / chunks.length) * dur
-    if (isThisEp) {
-      seek(t)
-      if (!isPlaying) resume()
-    } else {
-      play(episode)
-      setTimeout(() => seek(t), 600)
-    }
-  }
-
   if (loading) {
     return <div className="text-sm py-12 text-center" style={{ color: 'var(--muted)' }}>加载中...</div>
   }

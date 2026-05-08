@@ -348,6 +348,7 @@ export function TranscriptView({
                 transition: 'color 0.4s ease, border-color 0.3s ease',
               }}
             />
+          )
         })}
       </div>
 
