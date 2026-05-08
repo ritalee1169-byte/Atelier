@@ -115,24 +115,19 @@ export function TranscriptView({
   const containerRef = useRef<HTMLDivElement>(null)
   const thoughtInputRef = useRef<HTMLInputElement>(null)
   const savingRef = useRef(false)
+  const prevActiveRef = useRef<number>(-2)
   const [toolbar, setToolbar] = useState<ToolbarState | null>(null)
   const [hoveredChunk, setHoveredChunk] = useState<number | null>(null)
 
-  // Scroll to active chunk whenever it advances during playback
+  // Auto-scroll only when audio naturally advances one paragraph — not on seek/restore/jump
   useEffect(() => {
-    if (activeIndex < 0 || !containerRef.current) return
-    const el = containerRef.current.children[activeIndex] as HTMLElement | undefined
+    const prev = prevActiveRef.current
+    prevActiveRef.current = activeIndex
+    if (!isPlaying || activeIndex < 0 || activeIndex !== prev + 1) return
+    const el = containerRef.current?.children[activeIndex] as HTMLElement | undefined
     if (!el) return
     el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [activeIndex])
-
-  // Also scroll when playback starts (activeIndex may not change but position needs centering)
-  useEffect(() => {
-    if (!isPlaying || activeIndex < 0 || !containerRef.current) return
-    const el = containerRef.current.children[activeIndex] as HTMLElement | undefined
-    if (!el) return
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [isPlaying]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeIndex, isPlaying])
 
   useEffect(() => {
     if (toolbar?.mode === 'thought') {
@@ -168,13 +163,15 @@ export function TranscriptView({
 
   // Click on highlight mark → show toolbar
   const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement
-    if (!target.dataset.hl) return
-    const text = target.textContent ?? ''
+    // Walk up to find the <mark data-hl> element in case we clicked a child node
+    let el = e.target as HTMLElement | null
+    while (el && !el.dataset.hl) el = el.parentElement
+    if (!el) return
+    const text = el.textContent ?? ''
     if (!text) return
-    const rect = target.getBoundingClientRect()
+    const rect = el.getBoundingClientRect()
     const chunkIndex = containerRef.current
-      ? getChunkIndexForNode(target, containerRef.current)
+      ? getChunkIndexForNode(el, containerRef.current)
       : -1
     window.getSelection()?.removeAllRanges()
     setToolbar({

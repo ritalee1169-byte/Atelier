@@ -46,7 +46,10 @@ export function Today() {
 
   const isThisEp = currentEp?.id === episode?.id
   const effectiveTime = isThisEp ? currentTime : 0
-  const effectiveDuration = isThisEp ? duration : (episode?.duration_sec ?? 0)
+  // Use audio duration once loaded; fall back to stored value (handles the initial loading window)
+  const effectiveDuration = isThisEp
+    ? (duration > 0 ? duration : (episode?.duration_sec ?? 0))
+    : (episode?.duration_sec ?? 0)
   const progress = effectiveDuration > 0 ? (effectiveTime / effectiveDuration) * 100 : 0
 
   useEffect(() => {
