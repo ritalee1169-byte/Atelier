@@ -176,7 +176,7 @@ export function TranscriptView({
   const doHighlight = useCallback(async () => {
     if (!toolbar || savingRef.current) return
     savingRef.current = true
-    const { text, chunkIndex } = toolbar
+    const { text } = toolbar
     setToolbar(null)
     window.getSelection()?.removeAllRanges()
     try {
