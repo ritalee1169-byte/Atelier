@@ -376,7 +376,6 @@ export function Today() {
           onHighlightSaved={hl => setHighlights(prev => [...prev, hl])}
           onHighlightRemoved={text => setHighlights(prev => prev.filter(h => h.text !== text))}
           onAskHighlight={handleAskHighlight}
-          onSeekToChunk={handleSeekToChunk}
         />
 
         {/* sources list at end of transcript */}

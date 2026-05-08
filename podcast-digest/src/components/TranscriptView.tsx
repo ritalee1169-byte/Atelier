@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { EpisodeChunk } from '../types'
-import { Eraser, PenLine, MessageCircle, Check, X, Play } from 'lucide-react'
+import { Eraser, PenLine, MessageCircle, Check, X, Copy } from 'lucide-react'
 
 export interface Highlight { text: string; color: string }
 
@@ -24,7 +24,6 @@ interface TranscriptViewProps {
   onHighlightSaved?: (hl: Highlight) => void
   onHighlightRemoved?: (text: string) => void
   onAskHighlight?: (text: string) => void
-  onSeekToChunk?: (chunkIndex: number) => void
 }
 
 function getActiveChunkIndex(t: number, dur: number, total: number): number {
@@ -108,14 +107,13 @@ function TBtn({ icon, label, onClick, danger }: { icon: React.ReactNode; label: 
 
 export function TranscriptView({
   chunks, episodeId, highlights, activeColor, currentTime, duration,
-  onHighlightSaved, onHighlightRemoved, onAskHighlight, onSeekToChunk,
+  onHighlightSaved, onHighlightRemoved, onAskHighlight,
 }: TranscriptViewProps) {
   const activeIndex = getActiveChunkIndex(currentTime, duration, chunks.length)
   const containerRef = useRef<HTMLDivElement>(null)
   const thoughtInputRef = useRef<HTMLInputElement>(null)
   const savingRef = useRef(false)
   const [toolbar, setToolbar] = useState<ToolbarState | null>(null)
-  const [hoveredChunk, setHoveredChunk] = useState<number | null>(null)
 
   useEffect(() => {
     if (toolbar?.mode === 'thought') {
@@ -213,6 +211,13 @@ export function TranscriptView({
     onAskHighlight?.(text)
   }, [toolbar, onAskHighlight])
 
+  const doCopy = useCallback(() => {
+    if (!toolbar) return
+    navigator.clipboard.writeText(toolbar.text).catch(() => {})
+    setToolbar(null)
+    window.getSelection()?.removeAllRanges()
+  }, [toolbar])
+
   const doSaveThought = useCallback(async () => {
     if (!toolbar || !toolbar.thought.trim() || savingRef.current) return
     savingRef.current = true
@@ -251,17 +256,19 @@ export function TranscriptView({
             display: 'flex', flexDirection: 'column',
           }}
         >
-          {/* selected text preview */}
+          {/* selected text preview — up to 2 lines */}
           <div style={{
-            padding: '4px 10px 2px',
+            padding: '6px 10px 4px',
             fontSize: 11,
             color: 'rgba(255,255,255,0.45)',
-            maxWidth: 260,
+            maxWidth: 280,
+            lineHeight: 1.5,
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
           }}>
-            {toolbar.text.length > 40 ? toolbar.text.slice(0, 40) + '…' : toolbar.text}
+            {toolbar.text}
           </div>
 
           {toolbar.mode === 'default' ? (
@@ -275,6 +282,8 @@ export function TranscriptView({
               />
               <Divider />
               <TBtn icon={<MessageCircle size={13} />} label="问 AI" onClick={doAsk} />
+              <Divider />
+              <TBtn icon={<Copy size={13} />} label="复制" onClick={doCopy} />
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -325,49 +334,20 @@ export function TranscriptView({
       <div ref={containerRef}>
         {chunks.map((chunk, i) => {
           const isActive = i === activeIndex && activeIndex >= 0
-          const isHovered = i === hoveredChunk
           return (
-            <div
+            <p
               key={chunk.id}
-              style={{ position: 'relative', display: 'flex', alignItems: 'flex-start' }}
-              onMouseEnter={() => setHoveredChunk(i)}
-              onMouseLeave={() => setHoveredChunk(null)}
-            >
-              {/* 听当前 cursor button */}
-              <button
-                onMouseDown={e => e.preventDefault()}
-                onClick={e => { e.stopPropagation(); onSeekToChunk?.(i) }}
-                style={{
-                  flexShrink: 0,
-                  width: '1.6rem',
-                  paddingTop: 'calc(1.9em * 0.18)',
-                  display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-                  opacity: isActive ? 1 : (isHovered ? 0.5 : 0),
-                  transition: 'opacity 0.15s',
-                  cursor: 'pointer',
-                  color: isActive ? 'var(--accent, #3b82f6)' : '#999',
-                  pointerEvents: isHovered || isActive ? 'auto' : 'none',
-                }}
-                title="听当前"
-              >
-                <Play size={11} fill="currentColor" />
-              </button>
-
-              <p
-                dangerouslySetInnerHTML={{ __html: toHtml(chunk.content, highlights) }}
-                style={{
-                  flex: 1,
-                  fontSize: '1.05rem',
-                  lineHeight: '1.9',
-                  marginBottom: '1.8em',
-                  color: isActive ? '#111' : '#666',
-                  paddingLeft: '0.4rem',
-                  borderLeft: isActive ? '2px solid var(--accent, #3b82f6)' : (isHovered ? '2px solid #e5e7eb' : '2px solid transparent'),
-                  transition: 'color 0.4s ease, border-color 0.3s ease',
-                }}
-              />
-            </div>
-          )
+              dangerouslySetInnerHTML={{ __html: toHtml(chunk.content, highlights) }}
+              style={{
+                fontSize: '1.05rem',
+                lineHeight: '1.9',
+                marginBottom: '1.8em',
+                color: isActive ? '#111' : '#666',
+                paddingLeft: '1rem',
+                borderLeft: isActive ? '2.5px solid var(--accent)' : '2.5px solid transparent',
+                transition: 'color 0.4s ease, border-color 0.3s ease',
+              }}
+            />
         })}
       </div>
 
