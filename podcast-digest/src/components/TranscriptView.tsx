@@ -220,7 +220,7 @@ export function TranscriptView({
   const doSaveThought = useCallback(async () => {
     if (!toolbar || !toolbar.thought.trim() || savingRef.current) return
     savingRef.current = true
-    const { text, thought, chunkIndex, type } = toolbar
+    const { text, thought, chunkIndex: ci, type } = toolbar
     setToolbar(null)
     window.getSelection()?.removeAllRanges()
     try {
@@ -236,7 +236,7 @@ export function TranscriptView({
       await fetch('/api/note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, thought, episodeId, chunkIndex }),
+        body: JSON.stringify({ text, thought, episodeId, chunkIndex: ci }),
       })
     } finally { savingRef.current = false }
   }, [toolbar, activeColor, episodeId, onHighlightSaved])
