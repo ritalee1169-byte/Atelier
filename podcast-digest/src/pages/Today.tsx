@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAudioPlayer } from '../hooks/useAudioPlayer'
-import { TranscriptView } from '../components/TranscriptView'
-import { formatDate } from '../lib/utils'
+import { TranscriptView, type Highlight } from '../components/TranscriptView'
+import { formatDate, formatDuration } from '../lib/utils'
 import type { Episode, EpisodeChunk } from '../types'
-import { Play, Pause, RotateCcw, RotateCw, Send } from 'lucide-react'
+import { RotateCcw, RotateCw, Send } from 'lucide-react'
 
 interface RawEmail { sender: string; subject: string }
 
@@ -20,18 +20,20 @@ function episodeGradient(date: string) {
   return `conic-gradient(from ${hash % 360}deg, hsl(${h1},60%,55%), hsl(${h2},55%,62%), hsl(${h1},60%,55%))`
 }
 
+const SPEEDS = [0.75, 1, 1.25, 1.5]
+
 export function Today() {
   const [episode, setEpisode] = useState<Episode | null>(null)
   const [chunks, setChunks] = useState<EpisodeChunk[]>([])
   const [sources, setSources] = useState<RawEmail[]>([])
-  const [highlights, setHighlights] = useState<string[]>([])
+  const [highlights, setHighlights] = useState<Highlight[]>([])
   const [loading, setLoading] = useState(true)
   const [askQ, setAskQ] = useState('')
   const [askAnswer, setAskAnswer] = useState('')
   const [askLoading, setAskLoading] = useState(false)
   const askRef = useRef<HTMLTextAreaElement>(null)
 
-  const { play, pause, resume, skip, seek, isPlaying, currentTime, duration, episode: currentEp } =
+  const { play, pause, resume, skip, seek, setSpeed, isPlaying, currentTime, duration, speed, episode: currentEp } =
     useAudioPlayer()
 
   const isThisEp = currentEp?.id === episode?.id
@@ -64,14 +66,18 @@ export function Today() {
           .order('received_at'),
         supabase
           .from('notes')
-          .select('question')
+          .select('question, answer')
           .contains('episode_ids', [ep.id])
           .contains('tags', ['划线']),
       ])
 
       setChunks(ch ?? [])
       setSources(emails ?? [])
-      setHighlights((notes ?? []).map(n => n.question).filter(Boolean))
+      setHighlights(
+        (notes ?? [])
+          .filter(n => n.question)
+          .map(n => ({ text: n.question, color: n.answer?.startsWith('#') ? n.answer : '#fef08a' }))
+      )
       setLoading(false)
     }
     load()
@@ -135,57 +141,67 @@ export function Today() {
       </div>
 
       {/* vinyl player */}
-      <div className="flex flex-col items-center mb-10" style={{ gap: '1.25rem' }}>
-        <div
-          className={isThisEp && isPlaying ? 'vinyl-spinning' : ''}
-          style={{
-            width: 140, height: 140,
+      <div className="flex flex-col items-center mb-10" style={{ gap: '1.1rem' }}>
+
+        {/* vinyl disc = play/pause */}
+        <div style={{ position: 'relative', width: 140, height: 140, cursor: 'pointer' }} onClick={handlePlayToggle}>
+          <div
+            className={isThisEp && isPlaying ? 'vinyl-spinning' : ''}
+            style={{
+              width: 140, height: 140,
+              borderRadius: '50%',
+              background: episodeGradient(episode.date),
+              boxShadow: '0 4px 24px rgba(0,0,0,0.15)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <div style={{ width: 20, height: 20, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.75)' }} />
+          </div>
+          {/* play/pause overlay — always visible */}
+          <div style={{
+            position: 'absolute', inset: 0,
             borderRadius: '50%',
-            background: episodeGradient(episode.date),
-            boxShadow: '0 4px 24px rgba(0,0,0,0.13)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ width: 20, height: 20, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.75)' }} />
+            backgroundColor: isThisEp && isPlaying ? 'transparent' : 'rgba(0,0,0,0.18)',
+            transition: 'background-color 0.2s',
+          }}>
+            {isThisEp && isPlaying ? null : (
+              // Play triangle
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="white" style={{ marginLeft: 4 }}>
+                <polygon points="5,3 19,12 5,21" />
+              </svg>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center" style={{ gap: '1rem' }}>
+        {/* skip + time */}
+        <div className="flex items-center" style={{ gap: '1.25rem' }}>
           <button
             onClick={() => skip(-15)}
             className="relative flex items-center justify-center transition-opacity hover:opacity-60"
-            style={{ width: 40, height: 40 }}
+            style={{ width: 36, height: 36 }}
             title="后退15秒"
           >
-            <RotateCcw size={22} color="var(--foreground)" />
-            <span style={{ position: 'absolute', bottom: 6, fontSize: 9, fontWeight: 600, color: 'var(--foreground)', lineHeight: 1 }}>15</span>
+            <RotateCcw size={20} color="var(--foreground)" />
+            <span style={{ position: 'absolute', bottom: 5, fontSize: 8, fontWeight: 600, color: 'var(--foreground)', lineHeight: 1 }}>15</span>
           </button>
 
-          <button
-            onClick={handlePlayToggle}
-            className="flex items-center justify-center transition-opacity hover:opacity-80"
-            style={{
-              width: 60, height: 60, borderRadius: '50%',
-              backgroundColor: 'var(--foreground)', flexShrink: 0,
-            }}
-          >
-            {isThisEp && isPlaying
-              ? <Pause size={22} fill="var(--bg)" color="var(--bg)" />
-              : <Play size={22} fill="var(--bg)" color="var(--bg)" style={{ marginLeft: 3 }} />
-            }
-          </button>
+          <span style={{ fontSize: '0.8rem', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', minWidth: 90, textAlign: 'center' }}>
+            {formatDuration(Math.floor(effectiveTime))} / {formatDuration(episode.duration_sec ?? 0)}
+          </span>
 
           <button
             onClick={() => skip(15)}
             className="relative flex items-center justify-center transition-opacity hover:opacity-60"
-            style={{ width: 40, height: 40 }}
+            style={{ width: 36, height: 36 }}
             title="快进15秒"
           >
-            <RotateCw size={22} color="var(--foreground)" />
-            <span style={{ position: 'absolute', bottom: 6, fontSize: 9, fontWeight: 600, color: 'var(--foreground)', lineHeight: 1 }}>15</span>
+            <RotateCw size={20} color="var(--foreground)" />
+            <span style={{ position: 'absolute', bottom: 5, fontSize: 8, fontWeight: 600, color: 'var(--foreground)', lineHeight: 1 }}>15</span>
           </button>
         </div>
 
+        {/* progress bar */}
         <div
           onClick={handleProgressClick}
           style={{
@@ -205,21 +221,36 @@ export function Today() {
             }} />
           )}
         </div>
+
+        {/* speed */}
+        <div className="flex items-center" style={{ gap: '2px' }}>
+          {SPEEDS.map(s => (
+            <button
+              key={s}
+              onClick={() => setSpeed(s)}
+              style={{
+                padding: '3px 8px', borderRadius: 6, fontSize: 12,
+                backgroundColor: speed === s ? 'var(--foreground)' : 'transparent',
+                color: speed === s ? 'var(--bg)' : 'var(--muted)',
+                fontWeight: speed === s ? 600 : 400,
+                transition: 'all 0.15s',
+              }}
+            >
+              {s}x
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* source cards */}
       {sources.length > 0 && (
-        <div
-          className="mb-10"
-          style={{ overflowX: 'auto', display: 'flex', gap: '0.65rem', paddingBottom: 4 }}
-        >
+        <div className="mb-10" style={{ overflowX: 'auto', display: 'flex', gap: '0.65rem', paddingBottom: 4 }}>
           {sources.map((s, i) => (
             <div
               key={i}
               style={{
                 flexShrink: 0, minWidth: 140, maxWidth: 180,
-                backgroundColor: 'var(--card)',
-                borderRadius: 10,
+                backgroundColor: 'var(--card)', borderRadius: 10,
                 padding: '0.5rem 0.75rem',
               }}
             >
@@ -243,7 +274,8 @@ export function Today() {
         highlights={highlights}
         currentTime={effectiveTime}
         duration={effectiveDuration}
-        onHighlightSaved={text => setHighlights(prev => [...prev, text])}
+        onHighlightSaved={hl => setHighlights(prev => [...prev, hl])}
+        onHighlightRemoved={text => setHighlights(prev => prev.filter(h => h.text !== text))}
       />
 
       {/* ask AI */}

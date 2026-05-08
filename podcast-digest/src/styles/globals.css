@@ -1,22 +1,31 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @import 'tailwindcss';
 
 :root {
-  --bg: #f7f7f5;
-  --card: #ffffff;
-  --foreground: #37352f;
-  --muted: #9b9a97;
-  --border: rgba(55, 53, 47, 0.09);
-  --accent: #2383e2;
-  --radius: 6px;
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --bg: #ffffff;
+  --card: #f6f6f6;
+  --foreground: #111111;
+  --muted: #999999;
+  --border: rgba(0, 0, 0, 0.07);
+  --accent: #0057ff;
+  --radius: 10px;
+  --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 
 body {
-  font-family: 'Inter', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   background-color: var(--bg);
   color: var(--foreground);
   -webkit-font-smoothing: antialiased;
 }
 
 * { box-sizing: border-box; }
+
+@keyframes spin-vinyl {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.vinyl-spinning {
+  animation: spin-vinyl 10s linear infinite;
+}

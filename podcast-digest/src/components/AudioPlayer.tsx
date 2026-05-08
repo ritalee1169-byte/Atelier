@@ -1,6 +1,6 @@
 import { useAudioPlayer } from '../hooks/useAudioPlayer'
 import { formatDuration } from '../lib/utils'
-import { Play, Pause, SkipBack, SkipForward } from 'lucide-react'
+import { Play, Pause, RotateCcw, RotateCw } from 'lucide-react'
 
 const SPEEDS = [0.75, 1, 1.25, 1.5]
 
@@ -8,10 +8,10 @@ export function AudioPlayer() {
   const { episode, isPlaying, currentTime, duration, speed, pause, resume, seek, skip, setSpeed } =
     useAudioPlayer()
 
-  if (!episode) return null
-
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0
 
+  // Always render — never return null — to avoid React insertBefore errors
+  // when the component mounts/unmounts during concurrent renders.
   return (
     <div
       className="fixed bottom-0 left-0 right-0 z-50 border-t"
@@ -20,6 +20,9 @@ export function AudioPlayer() {
         backdropFilter: 'blur(16px)',
         borderColor: 'var(--border)',
         boxShadow: '0 -1px 12px rgba(0,0,0,0.06)',
+        transform: episode ? 'translateY(0)' : 'translateY(100%)',
+        transition: 'transform 0.25s ease',
+        pointerEvents: episode ? 'auto' : 'none',
       }}
     >
       {/* progress bar */}
@@ -28,8 +31,7 @@ export function AudioPlayer() {
         style={{ backgroundColor: 'var(--border)' }}
         onClick={e => {
           const rect = (e.target as HTMLElement).getBoundingClientRect()
-          const pct = (e.clientX - rect.left) / rect.width
-          seek(pct * duration)
+          seek((e.clientX - rect.left) / rect.width * duration)
         }}
       >
         <div
@@ -42,17 +44,22 @@ export function AudioPlayer() {
         {/* episode info */}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate" style={{ color: 'var(--foreground)' }}>
-            {episode.title}
+            {episode?.title ?? ''}
           </p>
           <p className="text-xs" style={{ color: 'var(--muted)' }}>
-            {formatDuration(Math.floor(currentTime))} / {formatDuration(episode.duration_sec)}
+            {formatDuration(Math.floor(currentTime))} / {formatDuration(episode?.duration_sec ?? 0)}
           </p>
         </div>
 
         {/* controls */}
         <div className="flex items-center gap-3">
-          <button onClick={() => skip(-15)} className="p-1.5 transition-opacity hover:opacity-60">
-            <SkipBack size={18} color="var(--foreground)" />
+          <button
+            onClick={() => skip(-15)}
+            className="relative flex items-center justify-center p-1.5 transition-opacity hover:opacity-60"
+            title="后退15秒"
+          >
+            <RotateCcw size={22} color="var(--foreground)" />
+            <span className="absolute text-[9px] font-semibold" style={{ color: 'var(--foreground)', bottom: 3, lineHeight: 1 }}>15</span>
           </button>
           <button
             onClick={isPlaying ? pause : resume}
@@ -64,8 +71,13 @@ export function AudioPlayer() {
               : <Play size={16} fill="var(--bg)" color="var(--bg)" />
             }
           </button>
-          <button onClick={() => skip(15)} className="p-1.5 transition-opacity hover:opacity-60">
-            <SkipForward size={18} color="var(--foreground)" />
+          <button
+            onClick={() => skip(15)}
+            className="relative flex items-center justify-center p-1.5 transition-opacity hover:opacity-60"
+            title="快进15秒"
+          >
+            <RotateCw size={22} color="var(--foreground)" />
+            <span className="absolute text-[9px] font-semibold" style={{ color: 'var(--foreground)', bottom: 3, lineHeight: 1 }}>15</span>
           </button>
         </div>
 

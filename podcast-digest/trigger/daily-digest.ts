@@ -11,18 +11,17 @@ const getOpenAI = () => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 const getSupabase = () => createClient(
   process.env.VITE_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { global: { fetch }, realtime: { transport: ws } }
+  { global: { fetch }, realtime: { transport: ws as any } }
 )
 
-// Scheduled: every day at 22:00 UTC (06:00 Beijing)
+// Scheduled: every day at 22:00 UTC (06:00 Beijing next day)
+// At 22:00 UTC the UTC date is "today" = yesterday in Beijing — that's what we want to digest.
 export const dailyDigest = schedules.task({
   id: 'daily-digest',
   cron: '0 22 * * *',
   maxDuration: 300,
   run: async () => {
-    const yesterday = new Date()
-    yesterday.setDate(yesterday.getDate() - 1)
-    await runDigest(yesterday)
+    await runDigest(new Date())
   },
 })
 
@@ -46,6 +45,16 @@ async function runDigest(date: Date) {
 
   logger.info('Starting digest for', { date: dateStr })
 
+  const { data: existing } = await supabase
+    .from('episodes')
+    .select('id')
+    .eq('date', dateStr)
+    .maybeSingle()
+  if (existing) {
+    logger.info('Episode already exists, skipping', { date: dateStr })
+    return
+  }
+
   const emails = await fetchGmailEmails(date)
   logger.info('Fetched emails', { count: emails.length })
   if (emails.length === 0) {
@@ -56,20 +65,25 @@ async function runDigest(date: Date) {
   const { title, summaryText } = await generateSummary(emails, dateStr)
   logger.info('Summary generated', { title, length: summaryText.length })
 
-  const audioUrl = await generateAudio(summaryText, dateStr, supabase)
-  logger.info('Audio uploaded', { audioUrl })
-
-  const { data: episode } = await supabase
+  // Insert episode first so audio upload can't leave a stale file if insert fails
+  const { data: episode, error: episodeError } = await supabase
     .from('episodes')
     .insert({
       date: dateStr,
       title,
       summary_text: summaryText,
-      audio_url: audioUrl,
+      audio_url: '',
       source_count: emails.length,
     })
     .select('id')
     .single()
+
+  if (episodeError) throw new Error(`Episode insert failed: ${JSON.stringify(episodeError)}`)
+
+  const audioUrl = await generateAudio(summaryText, dateStr, supabase)
+  logger.info('Audio uploaded', { audioUrl })
+
+  await supabase.from('episodes').update({ audio_url: audioUrl }).eq('id', episode!.id)
 
   logger.info('Episode saved', { episodeId: episode!.id })
 
