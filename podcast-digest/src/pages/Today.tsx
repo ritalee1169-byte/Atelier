@@ -131,6 +131,17 @@ export function Today() {
     }, 50)
   }
 
+  const handleSeekToChunk = (chunkIndex: number) => {
+    if (chunks.length === 0) return
+    const t = (chunkIndex / chunks.length) * (effectiveDuration || episode?.duration_sec || 0)
+    if (!isThisEp && episode) {
+      play(episode)
+      setTimeout(() => seek(t), 400)
+    } else {
+      seek(t)
+    }
+  }
+
   if (loading) {
     return <div className="text-sm py-12 text-center" style={{ color: 'var(--muted)' }}>加载中...</div>
   }
@@ -330,6 +341,7 @@ export function Today() {
           onHighlightSaved={hl => setHighlights(prev => [...prev, hl])}
           onHighlightRemoved={text => setHighlights(prev => prev.filter(h => h.text !== text))}
           onAskHighlight={handleAskHighlight}
+          onSeekToChunk={handleSeekToChunk}
         />
 
         {/* sources list at end of transcript */}
