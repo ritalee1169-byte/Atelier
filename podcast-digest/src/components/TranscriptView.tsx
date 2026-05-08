@@ -256,19 +256,21 @@ export function TranscriptView({
             display: 'flex', flexDirection: 'column',
           }}
         >
-          {/* selected text preview — up to 2 lines */}
+          {/* selected text preview */}
           <div style={{
-            padding: '6px 10px 4px',
-            fontSize: 11,
-            color: 'rgba(255,255,255,0.45)',
-            maxWidth: 280,
-            lineHeight: 1.5,
+            padding: '8px 12px 8px',
+            fontSize: 12.5,
+            color: 'rgba(255,255,255,0.88)',
+            maxWidth: 300,
+            lineHeight: 1.55,
             display: '-webkit-box',
-            WebkitLineClamp: 2,
+            WebkitLineClamp: 3,
             WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
+            borderBottom: '1px solid rgba(255,255,255,0.1)',
+            fontStyle: 'italic',
           }}>
-            {toolbar.text}
+            "{toolbar.text}"
           </div>
 
           {toolbar.mode === 'default' ? (
