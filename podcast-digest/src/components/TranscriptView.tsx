@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { EpisodeChunk } from '../types'
-import { Highlighter, Eraser, PenLine, MessageCircle, Check, X } from 'lucide-react'
+import { Highlighter, Eraser, PenLine, MessageCircle, Check, X, Play } from 'lucide-react'
 
 export interface Highlight { text: string; color: string }
 
@@ -8,8 +8,8 @@ interface ToolbarState {
   type: 'new' | 'existing'
   text: string
   chunkIndex: number
-  x: number    // viewport x (fixed positioning)
-  y: number    // viewport y (fixed positioning)
+  x: number
+  y: number
   mode: 'default' | 'thought'
   thought: string
 }
@@ -21,6 +21,7 @@ interface TranscriptViewProps {
   activeColor: string
   currentTime: number
   duration: number
+  isPlaying?: boolean
   onHighlightSaved?: (hl: Highlight) => void
   onHighlightRemoved?: (text: string) => void
   onAskHighlight?: (text: string) => void
@@ -39,13 +40,11 @@ function getChunkIndexForNode(node: Node, container: HTMLElement): number {
   return Array.from(container.children).indexOf(cur as Element)
 }
 
-// Maps visible text positions to HTML positions so marks can be inserted
-// even when the selection spans markdown tags like <strong>.
 function insertMark(html: string, searchText: string, color: string): string {
   if (!searchText) return html
   const vis: string[] = []
-  const ps: number[] = [] // html index where visible char starts
-  const pe: number[] = [] // html index where visible char ends (exclusive)
+  const ps: number[] = []
+  const pe: number[] = []
   let i = 0
   while (i < html.length) {
     if (html[i] === '<') {
@@ -75,7 +74,6 @@ function toHtml(text: string, highlights: Highlight[]): string {
     .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
     .replace(/---/g, '<span class="md-hr"></span>')
-
   for (const hl of highlights) {
     try { html = insertMark(html, hl.text, hl.color) } catch { /* skip */ }
   }
@@ -110,27 +108,32 @@ function TBtn({ icon, label, onClick, danger }: { icon: React.ReactNode; label: 
 }
 
 export function TranscriptView({
-  chunks, episodeId, highlights, activeColor, currentTime, duration,
+  chunks, episodeId, highlights, activeColor, currentTime, duration, isPlaying,
   onHighlightSaved, onHighlightRemoved, onAskHighlight, onSeekToChunk,
 }: TranscriptViewProps) {
   const activeIndex = getActiveChunkIndex(currentTime, duration, chunks.length)
   const containerRef = useRef<HTMLDivElement>(null)
   const thoughtInputRef = useRef<HTMLInputElement>(null)
   const savingRef = useRef(false)
-  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null)
-
   const [toolbar, setToolbar] = useState<ToolbarState | null>(null)
+  const [hoveredChunk, setHoveredChunk] = useState<number | null>(null)
 
+  // Scroll to active chunk whenever it advances during playback
   useEffect(() => {
     if (activeIndex < 0 || !containerRef.current) return
     const el = containerRef.current.children[activeIndex] as HTMLElement | undefined
     if (!el) return
-    const rect = el.getBoundingClientRect()
-    const inView = rect.top >= 60 && rect.bottom <= window.innerHeight - 100
-    if (!inView) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [activeIndex])
 
-  // Focus thought input when entering thought mode
+  // Also scroll when playback starts (activeIndex may not change but position needs centering)
+  useEffect(() => {
+    if (!isPlaying || activeIndex < 0 || !containerRef.current) return
+    const el = containerRef.current.children[activeIndex] as HTMLElement | undefined
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [isPlaying]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (toolbar?.mode === 'thought') {
       setTimeout(() => thoughtInputRef.current?.focus(), 30)
@@ -163,49 +166,31 @@ export function TranscriptView({
     }, 50)
   }, [highlights])
 
-  // Click on mark → show toolbar for existing highlight; plain click → seek to chunk
+  // Click on highlight mark → show toolbar
   const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const down = mouseDownPosRef.current
-    const moved = down && (Math.abs(e.clientX - down.x) > 5 || Math.abs(e.clientY - down.y) > 5)
-    if (moved) return // was a drag/selection, not a tap
-
     const target = e.target as HTMLElement
-    if (target.dataset.hl) {
-      // Tapped a highlight mark → show remove toolbar
-      const text = target.textContent ?? ''
-      if (!text) return
-      const rect = target.getBoundingClientRect()
-      const chunkIndex = containerRef.current
-        ? getChunkIndexForNode(target, containerRef.current)
-        : -1
-      window.getSelection()?.removeAllRanges()
-      setToolbar({
-        type: 'existing',
-        text,
-        chunkIndex,
-        x: Math.max(140, Math.min(window.innerWidth - 140, rect.left + rect.width / 2)),
-        y: Math.max(12, rect.top - 50),
-        mode: 'default',
-        thought: '',
-      })
-      return
-    }
+    if (!target.dataset.hl) return
+    const text = target.textContent ?? ''
+    if (!text) return
+    const rect = target.getBoundingClientRect()
+    const chunkIndex = containerRef.current
+      ? getChunkIndexForNode(target, containerRef.current)
+      : -1
+    window.getSelection()?.removeAllRanges()
+    setToolbar({
+      type: 'existing',
+      text,
+      chunkIndex,
+      x: Math.max(140, Math.min(window.innerWidth - 140, rect.left + rect.width / 2)),
+      y: Math.max(12, rect.top - 50),
+      mode: 'default',
+      thought: '',
+    })
+  }, [])
 
-    // Plain tap on paragraph → seek to that chunk
-    if (!containerRef.current) return
-    const chunkIndex = getChunkIndexForNode(target, containerRef.current)
-    if (chunkIndex >= 0) {
-      onSeekToChunk?.(chunkIndex)
-    }
-  }, [onSeekToChunk])
-
-  // Dismiss toolbar when clicking outside
   useEffect(() => {
     const dismiss = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest('[data-toolbar]')) {
-        setToolbar(null)
-        // don't clear selection so user can retry
-      }
+      if (!(e.target as HTMLElement).closest('[data-toolbar]')) setToolbar(null)
     }
     document.addEventListener('mousedown', dismiss)
     return () => document.removeEventListener('mousedown', dismiss)
@@ -255,7 +240,6 @@ export function TranscriptView({
     setToolbar(null)
     window.getSelection()?.removeAllRanges()
     try {
-      // Also highlight if not already
       if (type === 'new') {
         await fetch('/api/highlight', {
           method: 'POST',
@@ -274,13 +258,12 @@ export function TranscriptView({
 
   return (
     <div
-      onMouseDown={e => { mouseDownPosRef.current = { x: e.clientX, y: e.clientY } }}
       onMouseUp={handleSelectionEnd}
       onTouchEnd={handleSelectionEnd}
       onClick={handleClick}
       className="relative"
     >
-      {/* floating toolbar */}
+      {/* floating toolbar (appears on text selection) */}
       {toolbar && (
         <div
           data-toolbar="true"
@@ -326,7 +309,6 @@ export function TranscriptView({
               <TBtn icon={<MessageCircle size={13} />} label="问 AI" onClick={doAsk} />
             </div>
           ) : (
-            // thought input mode
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <input
                 ref={thoughtInputRef}
@@ -375,20 +357,48 @@ export function TranscriptView({
       <div ref={containerRef}>
         {chunks.map((chunk, i) => {
           const isActive = i === activeIndex && activeIndex >= 0
+          const isHovered = i === hoveredChunk
           return (
-            <p
+            <div
               key={chunk.id}
-              dangerouslySetInnerHTML={{ __html: toHtml(chunk.content, highlights) }}
-              style={{
-                fontSize: '1.05rem',
-                lineHeight: '1.9',
-                marginBottom: '1.8em',
-                color: isActive ? '#111' : '#666',
-                paddingLeft: '1rem',
-                borderLeft: isActive ? '2.5px solid var(--accent)' : '2.5px solid transparent',
-                transition: 'color 0.4s ease, border-color 0.3s ease',
-              }}
-            />
+              style={{ position: 'relative', display: 'flex', alignItems: 'flex-start' }}
+              onMouseEnter={() => setHoveredChunk(i)}
+              onMouseLeave={() => setHoveredChunk(null)}
+            >
+              {/* 听当前 cursor button */}
+              <button
+                onMouseDown={e => e.preventDefault()}
+                onClick={e => { e.stopPropagation(); onSeekToChunk?.(i) }}
+                style={{
+                  flexShrink: 0,
+                  width: '1.6rem',
+                  paddingTop: 'calc(1.9em * 0.18)',
+                  display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+                  opacity: isActive ? 1 : (isHovered ? 0.5 : 0),
+                  transition: 'opacity 0.15s',
+                  cursor: 'pointer',
+                  color: isActive ? 'var(--accent, #3b82f6)' : '#999',
+                  pointerEvents: isHovered || isActive ? 'auto' : 'none',
+                }}
+                title="听当前"
+              >
+                <Play size={11} fill="currentColor" />
+              </button>
+
+              <p
+                dangerouslySetInnerHTML={{ __html: toHtml(chunk.content, highlights) }}
+                style={{
+                  flex: 1,
+                  fontSize: '1.05rem',
+                  lineHeight: '1.9',
+                  marginBottom: '1.8em',
+                  color: isActive ? '#111' : '#666',
+                  paddingLeft: '0.4rem',
+                  borderLeft: isActive ? '2px solid var(--accent, #3b82f6)' : (isHovered ? '2px solid #e5e7eb' : '2px solid transparent'),
+                  transition: 'color 0.4s ease, border-color 0.3s ease',
+                }}
+              />
+            </div>
           )
         })}
       </div>

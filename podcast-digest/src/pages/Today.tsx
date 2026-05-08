@@ -370,6 +370,7 @@ export function Today() {
           activeColor={activeColor}
           currentTime={effectiveTime}
           duration={effectiveDuration}
+          isPlaying={isThisEp && isPlaying}
           onHighlightSaved={hl => setHighlights(prev => [...prev, hl])}
           onHighlightRemoved={text => setHighlights(prev => prev.filter(h => h.text !== text))}
           onAskHighlight={handleAskHighlight}
