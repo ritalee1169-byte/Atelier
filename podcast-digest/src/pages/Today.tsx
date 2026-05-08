@@ -141,63 +141,62 @@ export function Today() {
       </div>
 
       {/* vinyl player */}
-      <div className="flex flex-col items-center mb-10" style={{ gap: '1.1rem' }}>
+      <div className="flex flex-col items-center mb-10" style={{ gap: '1rem' }}>
 
-        {/* vinyl disc = play/pause */}
-        <div style={{ position: 'relative', width: 140, height: 140, cursor: 'pointer' }} onClick={handlePlayToggle}>
-          <div
-            className={isThisEp && isPlaying ? 'vinyl-spinning' : ''}
-            style={{
-              width: 140, height: 140,
-              borderRadius: '50%',
-              background: episodeGradient(episode.date),
-              boxShadow: '0 4px 24px rgba(0,0,0,0.15)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
-          >
-            <div style={{ width: 20, height: 20, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.75)' }} />
-          </div>
-          {/* play/pause overlay — always visible */}
-          <div style={{
-            position: 'absolute', inset: 0,
-            borderRadius: '50%',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            backgroundColor: isThisEp && isPlaying ? 'transparent' : 'rgba(0,0,0,0.18)',
-            transition: 'background-color 0.2s',
-          }}>
-            {isThisEp && isPlaying ? null : (
-              // Play triangle
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="white" style={{ marginLeft: 4 }}>
-                <polygon points="5,3 19,12 5,21" />
-              </svg>
-            )}
-          </div>
-        </div>
-
-        {/* skip + time */}
-        <div className="flex items-center" style={{ gap: '1.25rem' }}>
+        {/* row: skip-back | disc | skip-forward */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
           <button
             onClick={() => skip(-15)}
-            className="relative flex items-center justify-center transition-opacity hover:opacity-60"
-            style={{ width: 36, height: 36 }}
-            title="后退15秒"
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: 0.7 }}
+            className="hover:opacity-100 transition-opacity"
           >
-            <RotateCcw size={20} color="var(--foreground)" />
-            <span style={{ position: 'absolute', bottom: 5, fontSize: 8, fontWeight: 600, color: 'var(--foreground)', lineHeight: 1 }}>15</span>
+            <RotateCcw size={18} color="var(--foreground)" />
+            <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--foreground)', letterSpacing: 0 }}>15s</span>
           </button>
 
-          <span style={{ fontSize: '0.8rem', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', minWidth: 90, textAlign: 'center' }}>
-            {formatDuration(Math.floor(effectiveTime))} / {formatDuration(episode.duration_sec ?? 0)}
-          </span>
+          {/* disc — click to play/pause, center hole shows state */}
+          <div
+            className={isThisEp && isPlaying ? 'vinyl-spinning' : ''}
+            onClick={handlePlayToggle}
+            style={{
+              width: 150, height: 150,
+              borderRadius: '50%',
+              background: episodeGradient(episode.date),
+              boxShadow: '0 6px 28px rgba(0,0,0,0.14)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer',
+              transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1.03)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 32px rgba(0,0,0,0.2)' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 28px rgba(0,0,0,0.14)' }}
+          >
+            {/* center hole — white when paused, shows pause bars when playing */}
+            <div style={{
+              width: 36, height: 36, borderRadius: '50%',
+              backgroundColor: 'rgba(255,255,255,0.88)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+            }}>
+              {isThisEp && isPlaying ? (
+                <div style={{ display: 'flex', gap: 3 }}>
+                  <div style={{ width: 3, height: 12, borderRadius: 2, backgroundColor: '#555' }} />
+                  <div style={{ width: 3, height: 12, borderRadius: 2, backgroundColor: '#555' }} />
+                </div>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="#555" style={{ marginLeft: 2 }}>
+                  <polygon points="5,3 20,12 5,21" />
+                </svg>
+              )}
+            </div>
+          </div>
 
           <button
             onClick={() => skip(15)}
-            className="relative flex items-center justify-center transition-opacity hover:opacity-60"
-            style={{ width: 36, height: 36 }}
-            title="快进15秒"
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: 0.7 }}
+            className="hover:opacity-100 transition-opacity"
           >
-            <RotateCw size={20} color="var(--foreground)" />
-            <span style={{ position: 'absolute', bottom: 5, fontSize: 8, fontWeight: 600, color: 'var(--foreground)', lineHeight: 1 }}>15</span>
+            <RotateCw size={18} color="var(--foreground)" />
+            <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--foreground)' }}>15s</span>
           </button>
         </div>
 
@@ -205,10 +204,10 @@ export function Today() {
         <div
           onClick={handleProgressClick}
           style={{
-            width: '100%', maxWidth: 360, height: 3,
+            width: '100%', maxWidth: 380, height: 3,
             backgroundColor: 'var(--border)', borderRadius: 99,
             cursor: isThisEp && effectiveDuration > 0 ? 'pointer' : 'default',
-            position: 'relative',
+            position: 'relative', marginTop: 4,
           }}
         >
           <div style={{ height: '100%', width: `${progress}%`, backgroundColor: 'var(--accent)', borderRadius: 99, transition: 'width 0.1s linear' }} />
@@ -216,29 +215,34 @@ export function Today() {
             <div style={{
               position: 'absolute', top: '50%', left: `${progress}%`,
               transform: 'translate(-50%, -50%)',
-              width: 10, height: 10, borderRadius: '50%',
+              width: 11, height: 11, borderRadius: '50%',
               backgroundColor: 'var(--accent)',
             }} />
           )}
         </div>
 
-        {/* speed */}
-        <div className="flex items-center" style={{ gap: '2px' }}>
-          {SPEEDS.map(s => (
-            <button
-              key={s}
-              onClick={() => setSpeed(s)}
-              style={{
-                padding: '3px 8px', borderRadius: 6, fontSize: 12,
-                backgroundColor: speed === s ? 'var(--foreground)' : 'transparent',
-                color: speed === s ? 'var(--bg)' : 'var(--muted)',
-                fontWeight: speed === s ? 600 : 400,
-                transition: 'all 0.15s',
-              }}
-            >
-              {s}x
-            </button>
-          ))}
+        {/* time + speed on one line */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', maxWidth: 380 }}>
+          <span style={{ fontSize: '0.78rem', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
+            {formatDuration(Math.floor(effectiveTime))} / {formatDuration(episode.duration_sec ?? 0)}
+          </span>
+          <div style={{ display: 'flex', gap: 1 }}>
+            {SPEEDS.map(s => (
+              <button
+                key={s}
+                onClick={() => setSpeed(s)}
+                style={{
+                  padding: '2px 7px', borderRadius: 5, fontSize: 11,
+                  backgroundColor: speed === s ? 'var(--foreground)' : 'transparent',
+                  color: speed === s ? 'var(--bg)' : 'var(--muted)',
+                  fontWeight: speed === s ? 600 : 400,
+                  transition: 'all 0.15s',
+                }}
+              >
+                {s}x
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
