@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { EpisodeChunk } from '../types'
-import { Highlighter, Eraser, PenLine, MessageCircle, Play, Check, X } from 'lucide-react'
+import { Highlighter, Eraser, PenLine, MessageCircle, Check, X } from 'lucide-react'
 
 export interface Highlight { text: string; color: string }
 
@@ -117,6 +117,7 @@ export function TranscriptView({
   const containerRef = useRef<HTMLDivElement>(null)
   const thoughtInputRef = useRef<HTMLInputElement>(null)
   const savingRef = useRef(false)
+  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null)
 
   const [toolbar, setToolbar] = useState<ToolbarState | null>(null)
 
@@ -162,28 +163,41 @@ export function TranscriptView({
     }, 50)
   }, [highlights])
 
-  // Click on mark → show toolbar for existing highlight
+  // Click on mark → show toolbar for existing highlight; plain click → seek to chunk
   const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const down = mouseDownPosRef.current
+    const moved = down && (Math.abs(e.clientX - down.x) > 5 || Math.abs(e.clientY - down.y) > 5)
+    if (moved) return // was a drag/selection, not a tap
+
     const target = e.target as HTMLElement
-    if (!target.dataset.hl) return
-    const text = target.textContent ?? ''
-    if (!text) return
-    const rect = target.getBoundingClientRect()
-    const chunkIndex = containerRef.current
-      ? getChunkIndexForNode(target, containerRef.current)
-      : -1
-    // Clear selection if any
-    window.getSelection()?.removeAllRanges()
-    setToolbar({
-      type: 'existing',
-      text,
-      chunkIndex,
-      x: Math.max(140, Math.min(window.innerWidth - 140, rect.left + rect.width / 2)),
-      y: Math.max(12, rect.top - 50),
-      mode: 'default',
-      thought: '',
-    })
-  }, [])
+    if (target.dataset.hl) {
+      // Tapped a highlight mark → show remove toolbar
+      const text = target.textContent ?? ''
+      if (!text) return
+      const rect = target.getBoundingClientRect()
+      const chunkIndex = containerRef.current
+        ? getChunkIndexForNode(target, containerRef.current)
+        : -1
+      window.getSelection()?.removeAllRanges()
+      setToolbar({
+        type: 'existing',
+        text,
+        chunkIndex,
+        x: Math.max(140, Math.min(window.innerWidth - 140, rect.left + rect.width / 2)),
+        y: Math.max(12, rect.top - 50),
+        mode: 'default',
+        thought: '',
+      })
+      return
+    }
+
+    // Plain tap on paragraph → seek to that chunk
+    if (!containerRef.current) return
+    const chunkIndex = getChunkIndexForNode(target, containerRef.current)
+    if (chunkIndex >= 0) {
+      onSeekToChunk?.(chunkIndex)
+    }
+  }, [onSeekToChunk])
 
   // Dismiss toolbar when clicking outside
   useEffect(() => {
@@ -234,14 +248,6 @@ export function TranscriptView({
     onAskHighlight?.(text)
   }, [toolbar, onAskHighlight])
 
-  const doSeek = useCallback(() => {
-    if (!toolbar) return
-    const { chunkIndex } = toolbar
-    setToolbar(null)
-    window.getSelection()?.removeAllRanges()
-    onSeekToChunk?.(chunkIndex >= 0 ? chunkIndex : 0)
-  }, [toolbar, onSeekToChunk])
-
   const doSaveThought = useCallback(async () => {
     if (!toolbar || !toolbar.thought.trim() || savingRef.current) return
     savingRef.current = true
@@ -268,6 +274,7 @@ export function TranscriptView({
 
   return (
     <div
+      onMouseDown={e => { mouseDownPosRef.current = { x: e.clientX, y: e.clientY } }}
       onMouseUp={handleSelectionEnd}
       onTouchEnd={handleSelectionEnd}
       onClick={handleClick}
@@ -286,11 +293,24 @@ export function TranscriptView({
             borderRadius: 10,
             padding: '3px',
             boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-            display: 'flex', alignItems: 'center',
+            display: 'flex', flexDirection: 'column',
           }}
         >
+          {/* selected text preview */}
+          <div style={{
+            padding: '4px 10px 2px',
+            fontSize: 11,
+            color: 'rgba(255,255,255,0.45)',
+            maxWidth: 260,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}>
+            {toolbar.text.length > 40 ? toolbar.text.slice(0, 40) + '…' : toolbar.text}
+          </div>
+
           {toolbar.mode === 'default' ? (
-            <>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
               {toolbar.type === 'new' ? (
                 <TBtn icon={<Highlighter size={13} />} label="划线" onClick={doHighlight} />
               ) : (
@@ -304,12 +324,10 @@ export function TranscriptView({
               />
               <Divider />
               <TBtn icon={<MessageCircle size={13} />} label="问 AI" onClick={doAsk} />
-              <Divider />
-              <TBtn icon={<Play size={13} />} label="听当前" onClick={doSeek} />
-            </>
+            </div>
           ) : (
             // thought input mode
-            <>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
               <input
                 ref={thoughtInputRef}
                 value={toolbar.thought}
@@ -349,7 +367,7 @@ export function TranscriptView({
               >
                 <X size={13} />
               </button>
-            </>
+            </div>
           )}
         </div>
       )}

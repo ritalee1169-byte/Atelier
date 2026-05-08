@@ -123,11 +123,40 @@ export function Today() {
     }
   }
 
+  // Save playback position to localStorage every 15s
+  useEffect(() => {
+    if (!isThisEp || !isPlaying || !episode) return
+    const id = setInterval(() => {
+      if (currentTime > 5) {
+        localStorage.setItem(`pos:${episode.id}`, String(currentTime))
+      }
+    }, 15000)
+    return () => clearInterval(id)
+  }, [isThisEp, isPlaying, episode, currentTime])
+
+  // Restore saved position when this episode starts playing
+  useEffect(() => {
+    if (!isThisEp || !episode) return
+    const saved = localStorage.getItem(`pos:${episode.id}`)
+    if (saved) {
+      const t = parseFloat(saved)
+      if (t > 5) setTimeout(() => seek(t), 300)
+    }
+  // Only run when episode starts playing (isThisEp flips true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isThisEp])
+
   const handleAskHighlight = (text: string) => {
     setAskQ(text)
     setTimeout(() => {
-      askRef.current?.focus()
-      askRef.current?.setSelectionRange(text.length, text.length)
+      const el = askRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(0, 0)
+      el.scrollTop = 0
+      // Resize to fit content
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, 140) + 'px'
     }, 50)
   }
 
@@ -138,9 +167,9 @@ export function Today() {
     const t = (chunkIndex / chunks.length) * dur
     if (isThisEp) {
       seek(t)
+      if (!isPlaying) resume()
     } else {
       play(episode)
-      // Seek after audio metadata loads (~300-600ms)
       setTimeout(() => seek(t), 600)
     }
   }
