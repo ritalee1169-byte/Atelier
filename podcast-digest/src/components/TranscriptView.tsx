@@ -1,25 +1,19 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router'
-import { MessageCircle } from 'lucide-react'
 import type { EpisodeChunk } from '../types'
+import { MessageCircle } from 'lucide-react'
 
 export interface Highlight { text: string; color: string }
-
-const HL_COLORS = [
-  { value: '#fef08a', label: '黄' },
-  { value: '#bbf7d0', label: '绿' },
-  { value: '#bfdbfe', label: '蓝' },
-  { value: '#fecaca', label: '红' },
-]
 
 interface TranscriptViewProps {
   chunks: EpisodeChunk[]
   episodeId: string
   highlights: Highlight[]
+  activeColor: string
   currentTime: number
   duration: number
   onHighlightSaved?: (hl: Highlight) => void
   onHighlightRemoved?: (text: string) => void
+  onAskHighlight?: (text: string) => void
 }
 
 function getActiveChunkIndex(t: number, dur: number, total: number): number {
@@ -41,7 +35,7 @@ function toHtml(text: string, highlights: Highlight[]): string {
         .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       html = html.replace(
         new RegExp(escaped, 'g'),
-        `<mark data-hl="1" style="background:${hl.color};cursor:pointer" title="点击取消划线">$&</mark>`,
+        `<mark data-hl="1" style="background:${hl.color};border-radius:3px;padding:0 2px;cursor:default" title="点击取消划线">$&</mark>`,
       )
     } catch { /* skip */ }
   }
@@ -49,17 +43,14 @@ function toHtml(text: string, highlights: Highlight[]): string {
 }
 
 export function TranscriptView({
-  chunks, episodeId, highlights, currentTime, duration,
-  onHighlightSaved, onHighlightRemoved,
+  chunks, episodeId, highlights, activeColor, currentTime, duration,
+  onHighlightSaved, onHighlightRemoved, onAskHighlight,
 }: TranscriptViewProps) {
-  const navigate = useNavigate()
   const activeIndex = getActiveChunkIndex(currentTime, duration, chunks.length)
   const containerRef = useRef<HTMLDivElement>(null)
+  const savingRef = useRef(false)
 
-  const [selectedText, setSelectedText] = useState('')
-  const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number } | null>(null)
-  const [activeColor, setActiveColor] = useState(HL_COLORS[0].value)
-  const [saving, setSaving] = useState(false)
+  const [askBubble, setAskBubble] = useState<{ text: string; x: number; y: number } | null>(null)
 
   useEffect(() => {
     if (activeIndex < 0 || !containerRef.current) return
@@ -67,31 +58,52 @@ export function TranscriptView({
     el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [activeIndex])
 
+  // Auto-highlight on selection — no toolbar
   const handleSelectionEnd = useCallback(() => {
-    setTimeout(() => {
+    setTimeout(async () => {
       const sel = window.getSelection()
       const text = sel?.toString().trim() ?? ''
-      if (!text || text.length < 5) { setToolbarPos(null); return }
-      const range = sel!.getRangeAt(0)
-      const rect = range.getBoundingClientRect()
-      setSelectedText(text)
-      setToolbarPos({
-        x: Math.max(100, Math.min(window.innerWidth - 100, rect.left + rect.width / 2)),
-        y: rect.top - 52,
+      if (!text || text.length < 5 || savingRef.current) return
+      // Don't double-highlight existing marks
+      if (highlights.some(h => h.text === text)) return
+
+      savingRef.current = true
+      sel!.removeAllRanges()
+      try {
+        await fetch('/api/highlight', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, color: activeColor, episodeId }),
+        })
+        onHighlightSaved?.({ text, color: activeColor })
+      } finally {
+        savingRef.current = false
+      }
+    }, 80)
+  }, [activeColor, episodeId, highlights, onHighlightSaved])
+
+  // Hover over mark → show ask bubble
+  const handleMouseOver = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement
+    if (target.dataset.hl) {
+      const rect = target.getBoundingClientRect()
+      setAskBubble({
+        text: target.textContent ?? '',
+        x: rect.left + rect.width / 2,
+        y: rect.top - 30,
       })
-    }, 10)
-  }, [])
-
-  useEffect(() => {
-    const hide = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest('[data-toolbar]')) setToolbarPos(null)
     }
-    document.addEventListener('mousedown', hide)
-    return () => document.removeEventListener('mousedown', hide)
   }, [])
 
-  // Click on existing mark → remove it
-  const handleContainerClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseOut = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const related = e.relatedTarget as HTMLElement | null
+    if (!related?.closest('[data-ask-bubble]') && !related?.dataset.hl) {
+      setAskBubble(null)
+    }
+  }, [])
+
+  // Click on mark → remove
+  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement
     if (target.dataset.hl) {
       const text = target.textContent ?? ''
@@ -102,72 +114,45 @@ export function TranscriptView({
         body: JSON.stringify({ text, episodeId }),
       })
       onHighlightRemoved?.(text)
+      setAskBubble(null)
     }
   }, [episodeId, onHighlightRemoved])
 
-  const askAI = useCallback(() => {
-    setToolbarPos(null)
-    navigate(`/ask?q=${encodeURIComponent(selectedText)}`)
-  }, [selectedText, navigate])
-
-  const saveHighlight = useCallback(async (color: string) => {
-    if (saving) return
-    setSaving(true)
-    const text = selectedText
-    try {
-      await fetch('/api/highlight', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, color, episodeId }),
-      })
-      onHighlightSaved?.({ text, color })
-    } finally {
-      setSaving(false)
-      setToolbarPos(null)
-      window.getSelection()?.removeAllRanges()
-    }
-  }, [selectedText, episodeId, saving, onHighlightSaved])
-
   return (
-    <div onMouseUp={handleSelectionEnd} onTouchEnd={handleSelectionEnd} className="relative">
-      {toolbarPos && (
+    <div
+      onMouseUp={handleSelectionEnd}
+      onTouchEnd={handleSelectionEnd}
+      onMouseOver={handleMouseOver}
+      onMouseOut={handleMouseOut}
+      onClick={handleClick}
+      className="relative"
+    >
+      {/* ask bubble on mark hover */}
+      {askBubble && (
         <div
-          data-toolbar="true"
-          className="fixed z-50 flex items-center gap-px rounded-xl shadow-xl"
+          data-ask-bubble="true"
+          onMouseEnter={() => { /* keep visible */ }}
+          onMouseLeave={() => setAskBubble(null)}
           style={{
-            left: toolbarPos.x, top: toolbarPos.y,
+            position: 'fixed',
+            left: askBubble.x, top: askBubble.y,
             transform: 'translateX(-50%)',
-            backgroundColor: '#1c1c1c', padding: '4px',
+            zIndex: 50,
+            backgroundColor: '#1c1c1c',
+            borderRadius: 8,
+            padding: '4px 10px',
+            display: 'flex', alignItems: 'center', gap: 5,
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
           }}
+          onClick={e => { e.stopPropagation(); onAskHighlight?.(askBubble.text); setAskBubble(null) }}
         >
-          <button
-            onMouseDown={e => e.preventDefault()}
-            onClick={askAI}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-xs font-medium hover:bg-white/10"
-          >
-            <MessageCircle size={12} />问 AI
-          </button>
-          <div style={{ width: 1, height: 14, backgroundColor: 'rgba(255,255,255,0.15)', margin: '0 3px' }} />
-          {HL_COLORS.map(c => (
-            <button
-              key={c.value}
-              onMouseDown={e => e.preventDefault()}
-              onClick={() => { setActiveColor(c.value); saveHighlight(c.value) }}
-              disabled={saving}
-              title={c.label}
-              style={{
-                width: 22, height: 22, borderRadius: 6,
-                backgroundColor: c.value,
-                border: activeColor === c.value ? '2px solid rgba(255,255,255,0.8)' : '2px solid transparent',
-                cursor: 'pointer', flexShrink: 0,
-                opacity: saving ? 0.5 : 1,
-              }}
-            />
-          ))}
+          <MessageCircle size={11} color="white" />
+          <span style={{ fontSize: 12, color: 'white', fontWeight: 500 }}>问 AI</span>
         </div>
       )}
 
-      <div ref={containerRef} onClick={handleContainerClick}>
+      <div ref={containerRef}>
         {chunks.map((chunk, i) => {
           const isActive = i === activeIndex && activeIndex >= 0
           return (
@@ -190,8 +175,8 @@ export function TranscriptView({
 
       <style>{`
         .md-hr { display:block; height:1px; background:rgba(0,0,0,0.08); margin:0.75em 0 }
-        mark { padding:0 2px; border-radius:3px; color:inherit }
-        mark:hover { filter: brightness(0.92) }
+        mark { color:inherit }
+        mark:hover { filter: brightness(0.9) }
       `}</style>
     </div>
   )
