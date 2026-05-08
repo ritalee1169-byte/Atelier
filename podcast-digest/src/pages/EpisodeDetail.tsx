@@ -8,12 +8,20 @@ import { formatDate } from '../lib/utils'
 import type { Episode, EpisodeChunk, Note } from '../types'
 import { Play, Pause, ArrowLeft } from 'lucide-react'
 
+interface RawEmail { sender: string; subject: string }
+
+function senderName(raw: string) {
+  const m = raw.match(/^(.+?)\s*</)
+  return m ? m[1].trim().replace(/^["']|["']$/g, '') : raw.split('@')[0]
+}
+
 export function EpisodeDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [episode, setEpisode] = useState<Episode | null>(null)
   const [chunks, setChunks] = useState<EpisodeChunk[]>([])
   const [notes, setNotes] = useState<Note[]>([])
+  const [sources, setSources] = useState<RawEmail[]>([])
   const [loading, setLoading] = useState(true)
   const { play, isPlaying, currentTime, duration, episode: currentEp, pause, resume } =
     useAudioPlayer()
@@ -21,7 +29,7 @@ export function EpisodeDetail() {
   useEffect(() => {
     if (!id) return
     async function load() {
-      const [{ data: ep }, { data: ch }, { data: ns }] = await Promise.all([
+      const [{ data: ep }, { data: ch }, { data: ns }, { data: emails }] = await Promise.all([
         supabase.from('episodes').select('*').eq('id', id!).single(),
         supabase
           .from('episode_chunks')
@@ -33,10 +41,16 @@ export function EpisodeDetail() {
           .select('*')
           .contains('episode_ids', [id!])
           .order('created_at', { ascending: false }),
+        supabase
+          .from('raw_emails')
+          .select('sender, subject')
+          .eq('episode_id', id!)
+          .order('received_at'),
       ])
       setEpisode(ep)
       setChunks(ch ?? [])
       setNotes(ns ?? [])
+      setSources(emails ?? [])
       setLoading(false)
     }
     load()
@@ -49,20 +63,24 @@ export function EpisodeDetail() {
   const episodeDateMap = { [episode.id]: episode.date }
 
   return (
-    <div>
+    <article>
       <Link
         to="/archive"
-        className="inline-flex items-center gap-1 text-sm mb-6 transition-opacity hover:opacity-60"
+        className="inline-flex items-center gap-1 text-sm mb-8 transition-opacity hover:opacity-60"
         style={{ color: 'var(--muted)' }}
       >
         <ArrowLeft size={14} /> 返回存档
       </Link>
 
-      <div className="mb-8">
-        <p className="text-xs mb-2 tracking-wider uppercase" style={{ color: 'var(--muted)' }}>
+      {/* header */}
+      <div className="mb-10">
+        <p className="text-xs mb-3 tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
           {formatDate(episode.date)} · {episode.source_count} 封订阅
         </p>
-        <h1 className="text-2xl font-semibold mb-6" style={{ color: 'var(--foreground)' }}>
+        <h1
+          className="mb-6"
+          style={{ fontSize: '1.6rem', fontWeight: 700, lineHeight: 1.3, color: 'var(--foreground)', letterSpacing: '-0.01em' }}
+        >
           {episode.title}
         </h1>
         <button
@@ -73,30 +91,56 @@ export function EpisodeDetail() {
               ? resume()
               : play(episode)
           }
-          className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-md transition-opacity hover:opacity-80"
+          className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium transition-opacity hover:opacity-80"
           style={{
             backgroundColor: 'var(--foreground)',
             color: 'var(--bg)',
-            borderRadius: 'var(--radius)',
+            borderRadius: '999px',
           }}
         >
           {isThisEpisodePlaying
-            ? <Pause size={14} fill="var(--bg)" color="var(--bg)" />
-            : <Play size={14} fill="var(--bg)" color="var(--bg)" />
+            ? <Pause size={13} fill="var(--bg)" color="var(--bg)" />
+            : <Play size={13} fill="var(--bg)" color="var(--bg)" />
           }
           {isThisEpisodePlaying ? '暂停' : '播放'}
         </button>
       </div>
 
+      <div style={{ height: 1, backgroundColor: 'var(--border)', marginBottom: '2rem' }} />
+
       <TranscriptView
         chunks={chunks}
+        episodeId={episode.id}
+        highlights={[]}
         currentTime={currentEp?.id === episode.id ? currentTime : 0}
         duration={currentEp?.id === episode.id ? duration : episode.duration_sec}
       />
 
+      {/* sources */}
+      {sources.length > 0 && (
+        <div className="mt-12 pt-8" style={{ borderTop: '1px solid var(--border)' }}>
+          <p className="text-xs uppercase tracking-widest mb-4" style={{ color: 'var(--muted)' }}>
+            本期来源 · {sources.length} 封邮件
+          </p>
+          <div className="space-y-2">
+            {sources.map((s, i) => (
+              <div key={i} className="flex gap-3 items-baseline">
+                <span className="text-xs shrink-0" style={{ color: 'var(--muted)', minWidth: '5rem' }}>
+                  {senderName(s.sender)}
+                </span>
+                <span className="text-sm" style={{ color: '#555', lineHeight: 1.5 }}>
+                  {s.subject}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* notes */}
       {notes.length > 0 && (
-        <div className="mt-12">
-          <h2 className="text-base font-semibold mb-4" style={{ color: 'var(--foreground)' }}>
+        <div className="mt-12 pt-8" style={{ borderTop: '1px solid var(--border)' }}>
+          <h2 className="text-xs uppercase tracking-widest mb-4" style={{ color: 'var(--muted)' }}>
             本期笔记
           </h2>
           <div className="space-y-3">
@@ -111,6 +155,6 @@ export function EpisodeDetail() {
           </div>
         </div>
       )}
-    </div>
+    </article>
   )
 }
