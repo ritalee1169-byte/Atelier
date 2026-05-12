@@ -80,13 +80,12 @@ interface ChunkParagraphProps {
   sents: string[]
   isActive: boolean
   activeSentIdx: number
-  dimmed: boolean
   sourceUrl?: string
   sourceLabel?: string
 }
 
 const ChunkParagraph = memo(function ChunkParagraph({
-  sents, isActive, activeSentIdx, dimmed, sourceUrl, sourceLabel,
+  sents, isActive, activeSentIdx, sourceUrl, sourceLabel,
 }: ChunkParagraphProps) {
   return (
     <>
@@ -95,7 +94,7 @@ const ChunkParagraph = memo(function ChunkParagraph({
           fontSize: '1.05rem',
           lineHeight: '1.9',
           marginBottom: sourceUrl ? '0.6em' : '1.8em',
-          color: isActive ? '#999' : (dimmed ? '#d4d4d4' : '#666'),
+          color: '#666',
         }}
       >
         {sents.map((html, si) => {
@@ -198,7 +197,6 @@ export function TranscriptView({
             sents={sentsPerChunk[i] ?? []}
             isActive={isActive}
             activeSentIdx={isActive ? activeSentIdx : -1}
-            dimmed={activeIndex >= 0 && !isActive}
             sourceUrl={source ? emailLink(source) : undefined}
             sourceLabel={source ? senderName(source.sender) : undefined}
           />

@@ -48,17 +48,12 @@ export function Today() {
       if (!ep) { setLoading(false); return }
       setEpisode(ep)
 
-      const [{ data: ch }, { data: emails }, { data: notes }, { data: allEps }] = await Promise.all([
+      const [{ data: ch }, { data: notes }, { data: allEps }, emailsRes] = await Promise.all([
         supabase
           .from('episode_chunks')
           .select('id, episode_id, chunk_index, content, source_email_idx')
           .eq('episode_id', ep.id)
           .order('chunk_index'),
-        supabase
-          .from('raw_emails')
-          .select('sender, subject, gmail_message_id')
-          .eq('episode_id', ep.id)
-          .order('received_at'),
         supabase
           .from('notes')
           .select('question, answer')
@@ -69,10 +64,11 @@ export function Today() {
           .select('id, date, title')
           .order('date', { ascending: false })
           .limit(30),
+        fetch(`/api/sources?episode_id=${ep.id}`).then(r => r.json()).catch(() => []),
       ])
 
       setChunks(ch ?? [])
-      setSources(emails ?? [])
+      setSources(emailsRes ?? [])
       setHighlights(
         (notes ?? [])
           .filter(n => n.question)

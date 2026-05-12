@@ -89,19 +89,34 @@ async function runDigest(date: Date) {
 
   await generateEmbeddings(episode!.id, sections, supabase)
 
-  const { error: emailsError } = await supabase.from('raw_emails').insert(
-    emails.map(e => ({
-      episode_id: episode!.id,
-      sender: e.sender,
-      subject: e.subject,
-      received_at: normalizeDate(e.receivedAt),
-      gmail_message_id: e.messageId,
-    }))
+  // Use direct REST API for raw_emails insert (Supabase JS client silently fails on this table)
+  const rawEmailRows = emails.map(e => ({
+    episode_id: episode!.id,
+    sender: e.sender,
+    subject: e.subject,
+    received_at: normalizeDate(e.receivedAt),
+    gmail_message_id: e.messageId,
+  }))
+  const insertRes = await fetch(
+    `${process.env.VITE_SUPABASE_URL}/rest/v1/raw_emails`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY!}`,
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify(rawEmailRows),
+    }
   )
-  if (emailsError) {
-    logger.error('raw_emails insert failed', { error: emailsError })
-    throw new Error(`raw_emails insert failed: ${JSON.stringify(emailsError)}`)
+  if (!insertRes.ok) {
+    const errBody = await insertRes.text()
+    logger.error('raw_emails insert failed', { status: insertRes.status, body: errBody })
+    throw new Error(`raw_emails insert failed: ${insertRes.status} ${errBody}`)
   }
+  const inserted = await insertRes.json() as any[]
+  logger.info('raw_emails inserted', { count: inserted.length })
 
   logger.info('Digest complete', { date: dateStr })
 }

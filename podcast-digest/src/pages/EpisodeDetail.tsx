@@ -54,7 +54,7 @@ export function EpisodeDetail() {
     setLoading(true)
     setHighlights([])
     async function load() {
-      const [{ data: ep }, { data: ch }, { data: emails }, { data: hlNotes }] = await Promise.all([
+      const [{ data: ep }, { data: ch }, { data: hlNotes }, emailsRes] = await Promise.all([
         supabase.from('episodes').select('*').eq('id', id!).single(),
         supabase
           .from('episode_chunks')
@@ -62,19 +62,15 @@ export function EpisodeDetail() {
           .eq('episode_id', id!)
           .order('chunk_index'),
         supabase
-          .from('raw_emails')
-          .select('sender, subject, gmail_message_id')
-          .eq('episode_id', id!)
-          .order('received_at'),
-        supabase
           .from('notes')
           .select('question, answer')
           .contains('episode_ids', [id!])
           .contains('tags', ['划线']),
+        fetch(`/api/sources?episode_id=${id}`).then(r => r.json()).catch(() => []),
       ])
       setEpisode(ep)
       setChunks(ch ?? [])
-      setSources(emails ?? [])
+      setSources(emailsRes ?? [])
       setHighlights(
         (hlNotes ?? [])
           .filter(n => n.question)
