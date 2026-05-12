@@ -36,7 +36,13 @@ let audio: HTMLAudioElement | null = null
 function ensureAudio() {
   if (audio) return
   audio = new Audio()
-  audio.addEventListener('timeupdate', () => set({ currentTime: audio!.currentTime }))
+  let lastTick = 0
+  audio.addEventListener('timeupdate', () => {
+    const now = Date.now()
+    if (now - lastTick < 400) return
+    lastTick = now
+    set({ currentTime: audio!.currentTime })
+  })
   audio.addEventListener('durationchange', () => set({ duration: audio!.duration }))
   audio.addEventListener('ended', () => set({ isPlaying: false }))
 }

@@ -14,6 +14,7 @@ export interface EpisodeChunk {
   episode_id: string
   chunk_index: number
   content: string
+  source_email_idx?: number | null
 }
 
 export interface Note {

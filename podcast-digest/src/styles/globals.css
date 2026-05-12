@@ -29,3 +29,9 @@ body {
 .vinyl-spinning {
   animation: spin-vinyl 10s linear infinite;
 }
+
+.episode-toc::-webkit-scrollbar { display: none; }
+
+@media (max-width: 820px) {
+  .episode-toc { display: none !important; }
+}
