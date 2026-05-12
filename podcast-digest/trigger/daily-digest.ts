@@ -4,7 +4,6 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 import ws from 'ws'
-import { chunkText } from '../src/lib/chunker'
 
 const getAnthropic = () => new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const getOpenAI = () => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -62,8 +61,9 @@ async function runDigest(date: Date) {
     return
   }
 
-  const { title, summaryText } = await generateSummary(emails, dateStr)
-  logger.info('Summary generated', { title, length: summaryText.length })
+  const { title, sections } = await generateSummary(emails, dateStr)
+  const summaryText = sections.map(s => s.content).join('\n\n')
+  logger.info('Summary generated', { title, length: summaryText.length, sectionCount: sections.length })
 
   // Insert episode first so audio upload can't leave a stale file if insert fails
   const { data: episode, error: episodeError } = await supabase
@@ -87,16 +87,21 @@ async function runDigest(date: Date) {
 
   logger.info('Episode saved', { episodeId: episode!.id })
 
-  await generateEmbeddings(episode!.id, summaryText, supabase)
+  await generateEmbeddings(episode!.id, sections, supabase)
 
-  await supabase.from('raw_emails').insert(
+  const { error: emailsError } = await supabase.from('raw_emails').insert(
     emails.map(e => ({
       episode_id: episode!.id,
       sender: e.sender,
       subject: e.subject,
-      received_at: e.receivedAt,
+      received_at: normalizeDate(e.receivedAt),
+      gmail_message_id: e.messageId,
     }))
   )
+  if (emailsError) {
+    logger.error('raw_emails insert failed', { error: emailsError })
+    throw new Error(`raw_emails insert failed: ${JSON.stringify(emailsError)}`)
+  }
 
   logger.info('Digest complete', { date: dateStr })
 }
@@ -108,6 +113,12 @@ interface EmailItem {
   subject: string
   body: string
   receivedAt: string
+  messageId: string
+}
+
+interface DigestSection {
+  content: string
+  source_idx: number   // -1 for intro/outro
 }
 
 async function getGmailToken(): Promise<string> {
@@ -156,9 +167,14 @@ async function fetchGmailEmails(date: Date): Promise<EmailItem[]> {
     const body = extractBody(full.payload)
     if (body.trim().length < 50) continue
 
-    emails.push({ sender: from, subject, body, receivedAt: date })
+    emails.push({ sender: from, subject, body, receivedAt: date, messageId: msg.id })
   }
   return emails
+}
+
+function normalizeDate(rfc2822: string): string {
+  const d = new Date(rfc2822)
+  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
 }
 
 function extractBody(payload: any): string {
@@ -176,23 +192,26 @@ function extractBody(payload: any): string {
 async function generateSummary(
   emails: EmailItem[],
   dateStr: string
-): Promise<{ title: string; summaryText: string }> {
+): Promise<{ title: string; sections: DigestSection[] }> {
   const anthropic = getAnthropic()
   const emailsText = emails
-    .map(e => `=== ${e.subject} (from: ${e.sender}) ===\n${e.body.slice(0, 3000)}`)
+    .map((e, i) => `=== [邮件 ${i}] ${e.subject} (来自 ${e.sender}) ===\n${e.body.slice(0, 3000)}`)
     .join('\n\n')
 
   const msg = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 4000,
+    max_tokens: 8000,
     tools: [{
       name: 'save_digest',
-      description: '保存播客摘要',
+      description: '保存带来源标记的播客摘要',
       input_schema: {
         type: 'object' as const,
         properties: {
           title: { type: 'string', description: '简短的今日标题，如：5月6日科技早报' },
-          summary: { type: 'string', description: '适合朗读的播客文字稿，约1500-2000字' },
+          summary: {
+            type: 'string',
+            description: '播客文字稿。每段开头单起一行写 [SOURCE:N] 来源标记。N 是邮件编号（0-based）；开场白/结语/通用过渡用 -1。'
+          },
         },
         required: ['title', 'summary'],
       },
@@ -200,13 +219,32 @@ async function generateSummary(
     tool_choice: { type: 'tool', name: 'save_digest' },
     messages: [{
       role: 'user',
-      content: `你是一位专业的内容编辑。以下是${dateStr}收到的订阅邮件内容。
+      content: `你是一位专业的内容编辑。以下是 ${dateStr} 收到的订阅邮件，每封有编号 [邮件 N]。
 
-请完成以下任务：
-1. 去除重复话题，整合相关内容
-2. 生成一篇适合朗读的播客文字稿，约1500-2000字
-3. 语气自然流畅，像一位知识博主在娓娓道来
-4. 段落之间用空行分隔（便于分段）
+任务：
+1. 去重整合内容，生成播客文字稿（约 1500-2000 字）
+2. 语气像知识博主娓娓道来，自然流畅
+3. **每段开头单独一行加上来源标记 [SOURCE:N]**：
+   - N 是该段主要来自的邮件编号（0-based）
+   - 开场白、结语、跨多封邮件的过渡段用 [SOURCE:-1]
+4. 同一封邮件的内容尽量放一段或相邻段
+5. 正文里不要出现 "邮件 X" 之类的元信息
+
+输出格式示例：
+[SOURCE:-1]
+大家好，今天是 5 月 X 日……
+
+[SOURCE:0]
+第一条来自……
+
+[SOURCE:0]
+继续聊这件事……
+
+[SOURCE:2]
+另一项研究表明……
+
+[SOURCE:-1]
+今天就到这里……
 
 邮件内容：
 ${emailsText}`,
@@ -214,9 +252,41 @@ ${emailsText}`,
   })
 
   const toolUse = msg.content.find(c => c.type === 'tool_use') as any
-  if (!toolUse) throw new Error('Claude did not return tool_use block')
+  if (!toolUse) {
+    throw new Error(`No tool_use. stop_reason=${msg.stop_reason}. content=${JSON.stringify(msg.content).slice(0, 800)}`)
+  }
   const { title, summary } = toolUse.input as { title: string; summary: string }
-  return { title, summaryText: summary }
+  if (!summary || typeof summary !== 'string') {
+    throw new Error(`Bad summary. stop_reason=${msg.stop_reason}. input=${JSON.stringify(toolUse.input).slice(0, 800)}`)
+  }
+
+  const sections = parseSourceMarkers(summary)
+  if (sections.length === 0) {
+    throw new Error(`No sections parsed. summary head: ${summary.slice(0, 300)}`)
+  }
+  logger.info('Sections parsed', { count: sections.length, sources: sections.map(s => s.source_idx) })
+  return { title, sections }
+}
+
+function parseSourceMarkers(summary: string): DigestSection[] {
+  const re = /\[SOURCE:(-?\d+)\]\s*\n?/g
+  const matches: Array<{ end: number; nextStart: number; src: number }> = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(summary)) !== null) {
+    matches.push({ end: re.lastIndex, nextStart: m.index, src: parseInt(m[1], 10) })
+  }
+  if (matches.length === 0) {
+    // Fallback — no markers found, treat whole thing as one section
+    return [{ content: summary.trim(), source_idx: -1 }]
+  }
+  const sections: DigestSection[] = []
+  for (let i = 0; i < matches.length; i++) {
+    const start = matches[i].end
+    const end = i + 1 < matches.length ? matches[i + 1].nextStart : summary.length
+    const content = summary.slice(start, end).trim()
+    if (content) sections.push({ content, source_idx: matches[i].src })
+  }
+  return sections
 }
 
 async function generateAudio(text: string, dateStr: string, supabase: ReturnType<typeof getSupabase>): Promise<string> {
@@ -240,21 +310,26 @@ async function generateAudio(text: string, dateStr: string, supabase: ReturnType
   return data.publicUrl
 }
 
-async function generateEmbeddings(episodeId: string, text: string, supabase: ReturnType<typeof getSupabase>): Promise<void> {
+async function generateEmbeddings(
+  episodeId: string,
+  sections: DigestSection[],
+  supabase: ReturnType<typeof getSupabase>
+): Promise<void> {
   const openai = getOpenAI()
-  const chunks = chunkText(text, 200)
+  const contents = sections.map(s => s.content)
 
   const embeddingResponse = await openai.embeddings.create({
     model: 'text-embedding-3-small',
-    input: chunks,
+    input: contents,
   })
 
   await supabase.from('episode_chunks').insert(
-    chunks.map((content: string, i: number) => ({
+    sections.map((sec, i) => ({
       episode_id: episodeId,
       chunk_index: i,
-      content,
+      content: sec.content,
       embedding: embeddingResponse.data[i].embedding,
+      source_email_idx: sec.source_idx >= 0 ? sec.source_idx : null,
     }))
   )
 }
