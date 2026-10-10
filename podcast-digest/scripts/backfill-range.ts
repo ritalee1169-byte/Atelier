@@ -4,10 +4,10 @@
  *   (end date is inclusive, defaults to yesterday if omitted)
  */
 import { execSync } from 'child_process'
-import * as dotenv from 'dotenv'
 import * as path from 'path'
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local') })
+// dotenv is not a dependency; Node 20.12+ can load the env file itself
+process.loadEnvFile(path.resolve(process.cwd(), '.env.local'))
 
 const TRIGGER_SECRET_KEY = process.env.TRIGGER_SECRET_KEY!
 const PROJECT_REF = 'proj_ausauvjoptvofpjkowns'

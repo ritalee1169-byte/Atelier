@@ -3,6 +3,7 @@ import * as url from 'url'
 import { execSync } from 'child_process'
 
 // Run: npx tsx scripts/get-gmail-token.ts
+process.loadEnvFile('.env.local')
 const CLIENT_ID = process.env.GMAIL_CLIENT_ID!
 const CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET!
 const PORT = 3456
