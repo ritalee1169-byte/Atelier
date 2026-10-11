@@ -163,6 +163,10 @@ async function fetchGmailEmails(date: Date): Promise<EmailItem[]> {
     `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&q=${encodeURIComponent(q)}`,
     { headers: { Authorization: `Bearer ${token}` } }
   )
+  // Fail loudly on auth/API errors instead of treating them as "no emails"
+  if (!listRes.ok) {
+    throw new Error(`Gmail list failed: ${listRes.status} ${await listRes.text()}`)
+  }
   const listData = await listRes.json() as { messages?: { id: string }[] }
   if (!listData.messages) return []
 
@@ -172,6 +176,9 @@ async function fetchGmailEmails(date: Date): Promise<EmailItem[]> {
       `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
       { headers: { Authorization: `Bearer ${token}` } }
     )
+    if (!msgRes.ok) {
+      throw new Error(`Gmail get ${msg.id} failed: ${msgRes.status} ${await msgRes.text()}`)
+    }
     const full = await msgRes.json() as any
 
     const headers: { name: string; value: string }[] = full.payload?.headers ?? []

@@ -15,9 +15,24 @@ interface TranscriptViewProps {
   autoScroll?: boolean
 }
 
-function getActiveChunkIndex(t: number, dur: number, total: number): number {
-  if (dur === 0 || total === 0) return -1
-  return Math.min(Math.floor((t / dur) * total), total - 1)
+// Speech runs at a roughly constant rate, so map playback time to text by
+// character count rather than giving every paragraph/sentence equal time.
+function getActivePosition(t: number, dur: number, sentLens: number[][]): [number, number] {
+  const total = sentLens.reduce((sum, lens) => sum + lens.reduce((a, b) => a + b, 0), 0)
+  if (dur === 0 || total === 0) return [-1, -1]
+  let remaining = Math.min(Math.max(t / dur, 0), 1) * total
+  for (let ci = 0; ci < sentLens.length; ci++) {
+    for (let si = 0; si < sentLens[ci].length; si++) {
+      if (remaining < sentLens[ci][si]) return [ci, si]
+      remaining -= sentLens[ci][si]
+    }
+  }
+  const last = sentLens.length - 1
+  return [last, Math.max(sentLens[last].length - 1, 0)]
+}
+
+function speechLength(text: string): number {
+  return Math.max(text.replace(/\s/g, '').length, 1)
 }
 
 function splitSentences(text: string): string[] {
@@ -145,10 +160,6 @@ const ChunkParagraph = memo(function ChunkParagraph({
 export function TranscriptView({
   chunks, highlights, currentTime, duration, sources = [], autoScroll = false,
 }: TranscriptViewProps) {
-  const activeIndex = getActiveChunkIndex(currentTime, duration, chunks.length)
-  const chunkDuration = chunks.length > 0 && duration > 0 ? duration / chunks.length : 0
-  const timeInChunk = activeIndex >= 0 ? Math.max(0, currentTime - activeIndex * chunkDuration) : 0
-
   const sentsPerChunk = useMemo(
     () => chunks.map(c => splitSentences(c.content).map(s => toHtml(s, highlights))),
     [chunks, highlights]
@@ -160,10 +171,11 @@ export function TranscriptView({
     [chunks, sources]
   )
 
-  const activeSentCount = (activeIndex >= 0 ? sentsPerChunk[activeIndex]?.length : 0) ?? 0
-  const activeSentIdx = (activeIndex >= 0 && chunkDuration > 0 && activeSentCount > 0)
-    ? Math.min(Math.floor((timeInChunk / chunkDuration) * activeSentCount), activeSentCount - 1)
-    : -1
+  const sentLens = useMemo(
+    () => chunks.map(c => splitSentences(c.content).map(speechLength)),
+    [chunks]
+  )
+  const [activeIndex, activeSentIdx] = getActivePosition(currentTime, duration, sentLens)
 
   useEffect(() => {
     if (!autoScroll || activeIndex < 0) return
